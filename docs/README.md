@@ -43,3 +43,5 @@
 - 表の一覧と、表ごとの MUTABLE（UPDATE・DELETE がある）／ IMMUTABLE（INSERT だけ）。IMMUTABLE はトリガーで守る
 - 外部とのやり取りごとの再試行（回数、待ち時間、揺らぎ、制限のヘッダー）と冪等性
 - 図（mermaid）は、push の前に検証する
+- 状態によって持つ項目が変わる型は直和型（`type X = A | B`）にし、`match` と `assert_never` で網羅性を ty に検査させる（[フェーズ 1](retrospectives/2026-10-12-phase1.md) T-01）
+- 契約と実装は構成要素ごとのパッケージに並べ、import の規則をアーキテクチャテストで検査する（同 T-02）
