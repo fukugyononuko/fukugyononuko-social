@@ -37,16 +37,80 @@ src/fukugyononuko_social/
 
 ## DD-03 保存先のスキーマ（SQLite、EIF-02）
 
-| 表 | 列 | キー |
-| --- | --- | --- |
-| `account_snapshots` | channel、fetched_at、followers、following、posts | (channel, fetched_at) |
-| `post_metrics` | channel、post_id、fetched_at、created_at、text_head、impressions、likes、replies、reposts、quotes、bookmarks、profile_clicks、link_clicks | (channel, post_id, fetched_at) |
-| `drafts` | id、channel、text、fingerprint（64 桁）、status、findings（JSON）、estimate_usd、estimate_jpy、created_at、approved_at、post_id、published_at、error | id（自動採番） |
-| `charges` | id、at、month（YYYY-MM）、channel、operation、units、usd、jpy、reason | id |
-| `schema_version` | version | ― |
+```mermaid
+erDiagram
+  measurement_runs ||--o{ account_snapshots : "取得した"
+  measurement_runs ||--o{ post_metrics : "取得した"
+  measurement_runs ||--o{ charges : "計測の費用"
+  drafts ||--o{ charges : "投稿の費用"
+  drafts |o..o{ post_metrics : "post_id が一致すれば、自分が出した投稿の数字（FK ではない）"
 
-- 時刻は UTC の ISO 8601 の文字列。金額は `Decimal` の文字列。
-- 同じ時刻の取得をもう一度保存しても主キーで重複しない（NFR-05）。
+  measurement_runs {
+    integer id PK
+    text started_at
+    text finished_at
+    text outcome "ok / rejected / failed"
+  }
+  account_snapshots {
+    text channel PK
+    text fetched_at PK
+    integer run_id FK
+    integer followers "人数"
+    integer following "人数"
+    integer posts "件数"
+  }
+  post_metrics {
+    text channel PK
+    text post_id PK
+    text fetched_at PK
+    integer run_id FK
+    text created_at
+    text text_head
+    integer impressions
+    integer likes
+    integer replies
+    integer reposts
+    integer quotes
+    integer bookmarks
+    integer profile_clicks "取れなければ NULL"
+    integer link_clicks "取れなければ NULL"
+  }
+  drafts {
+    integer id PK
+    text channel
+    text text
+    text fingerprint "64 桁"
+    text status
+    text findings "JSON"
+    text estimate_usd
+    text estimate_jpy
+    text created_at
+    text approved_at
+    text post_id
+    text published_at
+    text error
+  }
+  charges {
+    integer id PK
+    text at
+    text month "YYYY-MM"
+    integer run_id FK "計測のとき"
+    integer draft_id FK "投稿のとき"
+    text channel
+    text operation
+    integer units
+    text usd
+    text jpy
+  }
+```
+
+- **`account_snapshots` と `post_metrics` は追記だけの表**（INSERT のみ。UPDATE・DELETE はしない）。値が変わったら、新しい時刻の行として足す。過去の値を残すことで、伸び方を時系列で追える。
+- **`followers`・`following`・`posts` は人数・件数**。フォロワーの名前や一覧は取らない（要件にないうえ、一覧の取得は 1 件ごとに課金され、他人の情報を持つことにもなるため）。
+- `drafts` は状態だけを更新する（DD-04）。文章と指紋は登録したあと変えない。
+- `charges` は `run_id` と `draft_id` のどちらか一方だけを持つ。
+- `post_metrics.post_id` と `drafts.post_id` は外部キーにしない。手で投稿したものも計測するため。
+- 時刻は UTC の ISO 8601 の文字列。金額は `Decimal` の文字列。`schema_version` 表（列は version だけ）で、スキーマの版を管理する。
+- 同じ時刻の取得をもう一度保存しても、主キーで重複しない（NFR-05）。
 
 ## DD-04 下書きの状態遷移（CMP-A03）
 
@@ -102,7 +166,14 @@ X の公式の数え方（[Counting characters](https://docs.x.com/fundamentals/
 ## DD-09 X との通信（CMP-A01）
 
 - OAuth 1.0a（HMAC-SHA1、RFC 5849）で署名する。HTTP は `urllib`。タイムアウトは 30 秒。
-- GET は、429 と 5xx のときだけ最大 2 回まで、間を空けて再試行する。POST（投稿）は再試行しない（二重投稿を防ぐ。NFR-06）。
+- **再試行**：GET は、429・5xx・タイムアウトのときだけ、最大 2 回まで再試行する（合計 3 回）。
+  - 待ち時間は指数バックオフ：1 回目の前は 2 秒、2 回目の前は 4 秒。それぞれ ±20% の揺らぎ（ジッター）を加える。
+  - 429 の応答に `x-rate-limit-reset`（制限が解ける時刻）があれば、それまで待つ。ただし 60 秒より先なら待たずに失敗とする（`ExternalFailure`）。
+  - 4xx（429 以外）は再試行しない。
+- **冪等性**：
+  - GET は読み取りだけなので、再試行しても X 側の状態は変わらない。再試行で費用が二重にかかる可能性はある（同じものを 24 時間以内に取り直すと課金されないことがある、と公式にあるが、保証はない）。そこで、費用は 2xx の応答ごとに記録する。
+  - 計測をまるごと再実行しても、追記の表と「投稿ごとに最新の値だけを使う」集計（DD-10）により、集計は重複しない（NFR-05）。
+  - POST（投稿）は再試行しない。X の投稿 API に、重複を防ぐキー（冪等キー）の仕組みは見当たらない（未確認）。そのため、二重投稿は下書きの状態遷移で防ぐ（DD-04）。応答が返らないまま終わった場合は「送信中」のまま残り、自動では再送しない（運営者が X の画面で確かめる）。
 - 投稿の取得は `start_time` を「今 − 29 日」、`max_results=100`、`exclude=retweets` にして、`next_token` がなくなるまでページをめくる。
 - 応答の `public_metrics` と `non_public_metrics` を、共通の項目名（02b §2b.3）に揃える。
 
@@ -111,6 +182,7 @@ X の公式の数え方（[Counting characters](https://docs.x.com/fundamentals/
 - 投稿：投稿ごとに `fetched_at` が最大の行だけを使い、`created_at` の月ごとに合計する。
 - アカウント：月ごとに、その月の最後の取得値を使う。
 - 費用：`charges` を月ごとに合計する。
+- 最後の計測：`measurement_runs` の最新の行。
 - 直近の投稿：作成から 29 日以内の投稿を、表示の多い順に並べる。同じ値どうしは投稿 ID の順にする（並び順を一意に決める。決まり 11）。
 
 ## DD-11 集計の書き出し（CMP-A05）
