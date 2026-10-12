@@ -104,9 +104,23 @@ erDiagram
   }
 ```
 
-- **`account_snapshots` と `post_metrics` は追記だけの表**（INSERT のみ。UPDATE・DELETE はしない）。値が変わったら、新しい時刻の行として足す。過去の値を残すことで、伸び方を時系列で追える。
+### 表の一覧
+
+MUTABLE は UPDATE か DELETE がある表、IMMUTABLE は INSERT だけの表。
+
+| 表 | 可変性 | 許す操作 | 内容・理由 |
+| --- | --- | --- | --- |
+| `measurement_runs` | MUTABLE | INSERT、UPDATE（`finished_at`・`outcome` を 1 回だけ） | 計測 1 回分。開始時に行を作り、終了時に結果を書く（途中で落ちても、開始したことが残る） |
+| `account_snapshots` | IMMUTABLE | INSERT | アカウントの数字。値が変わったら、新しい時刻の行として足す |
+| `post_metrics` | IMMUTABLE | INSERT | 投稿ごとの数字。同上 |
+| `drafts` | MUTABLE | INSERT、UPDATE（状態と、承認・投稿の結果の列だけ。DD-04） | 下書き。文章と指紋は変えない。破棄も DELETE ではなく状態で表す |
+| `charges` | IMMUTABLE | INSERT | 費用の記録。訂正が必要なら、打ち消しの行を足す |
+| `schema_version` | MUTABLE | UPDATE（スキーマの移行のときだけ） | スキーマの版 |
+
+- IMMUTABLE の表には、UPDATE と DELETE を拒否するトリガー（`BEFORE UPDATE`・`BEFORE DELETE` で `RAISE(ABORT)`）を付けて、データベースの側でも守る。
+- IMMUTABLE の表は過去の値を残すので、伸び方を時系列で追える。
+
 - **`followers`・`following`・`posts` は人数・件数**。フォロワーの名前や一覧は取らない（要件にないうえ、一覧の取得は 1 件ごとに課金され、他人の情報を持つことにもなるため）。
-- `drafts` は状態だけを更新する（DD-04）。文章と指紋は登録したあと変えない。
 - `charges` は `run_id` と `draft_id` のどちらか一方だけを持つ。
 - `post_metrics.post_id` と `drafts.post_id` は外部キーにしない。手で投稿したものも計測するため。
 - 時刻は UTC の ISO 8601 の文字列。金額は `Decimal` の文字列。`schema_version` 表（列は version だけ）で、スキーマの版を管理する。
