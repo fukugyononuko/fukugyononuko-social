@@ -3,8 +3,10 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from fukugyononuko_social.contracts import AccountSnapshot, Channel, Cost, PostMetrics
-from fukugyononuko_social.engines.aggregation import DefaultAggregationEngine
+from fukugyononuko_social.domain.channel import Channel
+from fukugyononuko_social.domain.metrics import AccountSnapshot, PostMetrics
+from fukugyononuko_social.domain.money import Cost
+from fukugyononuko_social.engines.aggregation.default import DefaultAggregationEngine
 from tests.fakes import FakeLedger, FakeMetrics
 
 NOW = datetime(2026, 10, 31, 0, tzinfo=UTC)

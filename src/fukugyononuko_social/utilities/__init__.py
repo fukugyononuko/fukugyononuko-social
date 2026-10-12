@@ -1,1 +1,1 @@
-"""Utility 層（CMP-U01〜U03）。contracts だけに依存する。"""
+"""Utility 層（CMP-U01〜U03）。各パッケージの __init__ が契約、隣のモジュールが実装。"""

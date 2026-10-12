@@ -1,4 +1,4 @@
-"""CMP-U03 Clock：現在時刻（UTC）を返す。テストでは固定した Clock を渡す。"""
+"""CMP-U03 Clock の実装：OS の時計。"""
 
 from datetime import UTC, datetime
 

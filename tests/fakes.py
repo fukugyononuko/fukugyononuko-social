@@ -5,17 +5,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
-from fukugyononuko_social.contracts import (
-    AccountSnapshot,
-    Budget,
-    Channel,
-    Cost,
-    ExternalFailure,
-    MeasurementRun,
-    MetricsHistory,
-    PostMetrics,
-    month_of,
-)
+from fukugyononuko_social.domain.channel import Channel, month_of
+from fukugyononuko_social.domain.errors import ExternalFailure, Outcome
+from fukugyononuko_social.domain.metrics import AccountSnapshot, Finished, MeasurementRun, MetricsHistory, PostMetrics
+from fukugyononuko_social.domain.money import Budget, Cost
 
 X_PRICES = {
     (Channel.X, "user_read"): Decimal("0.010"),
@@ -80,8 +73,8 @@ class FakeMetrics:
     def start_run(self, at: datetime) -> int:
         return 1
 
-    def finish_run(self, run_id: int, at: datetime, outcome: str) -> None:
-        self.last_run = MeasurementRun(run_id, at, at, outcome)
+    def finish_run(self, run_id: int, at: datetime, outcome: Outcome) -> None:
+        self.last_run = Finished(run_id, at, at, outcome)
 
     def record(self, run_id: int, accounts: Sequence[AccountSnapshot], posts: Sequence[PostMetrics]) -> None:
         self.accounts += accounts

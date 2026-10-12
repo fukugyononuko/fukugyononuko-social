@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from fukugyononuko_social.contracts import Channel, ExternalFailure, Secret
-from fukugyononuko_social.utilities.logging import JsonLinesLog
-from fukugyononuko_social.utilities.security import KeychainSecurity
+from fukugyononuko_social.domain.channel import Channel
+from fukugyononuko_social.domain.errors import ExternalFailure, Outcome
+from fukugyononuko_social.domain.secret import Secret
+from fukugyononuko_social.utilities.logging.jsonl import JsonLinesLog
+from fukugyononuko_social.utilities.security.keychain import KeychainSecurity
 from tests.fakes import FixedClock
 
 CLOCK = FixedClock(datetime(2026, 10, 12, 0, tzinfo=UTC))
@@ -17,8 +19,8 @@ CLOCK = FixedClock(datetime(2026, 10, 12, 0, tzinfo=UTC))
 
 def test_log_writes_json_lines(tmp_path: Path) -> None:
     log = JsonLinesLog(tmp_path / "logs" / "nukosns.log", CLOCK)
-    log.record("measure", "ok", posts=5, cost_jpy=3)
-    log.record("publish", "rejected", draft=2)
+    log.record("measure", Outcome.OK, posts=5, cost_jpy=3)
+    log.record("publish", Outcome.REJECTED, draft=2)
     lines = [json.loads(line) for line in (tmp_path / "logs" / "nukosns.log").read_text().splitlines()]
     assert lines[0] == {
         "at": "2026-10-12T00:00:00+00:00",
@@ -32,9 +34,9 @@ def test_log_writes_json_lines(tmp_path: Path) -> None:
 def test_log_refuses_secret_and_long_text(tmp_path: Path) -> None:
     log = JsonLinesLog(tmp_path / "nukosns.log", CLOCK)
     with pytest.raises(TypeError):
-        log.record("x", "ok", token=Secret("v"))  # ty: ignore[invalid-argument-type]
+        log.record("x", Outcome.OK, token=Secret("v"))  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError):
-        log.record("x", "ok", text="あ" * 201)
+        log.record("x", Outcome.OK, text="あ" * 201)
     assert not (tmp_path / "nukosns.log").exists()
 
 

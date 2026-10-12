@@ -1,18 +1,12 @@
-"""CMP-E01 AggregationEngine：時系列の数字から、月ごとの集計と直近の投稿の一覧を作る（DD-10）。"""
+"""CMP-E01 AggregationEngine の実装（DD-10）。"""
 
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from fukugyononuko_social.contracts import (
-    AccountSnapshot,
-    Channel,
-    LedgerAccess,
-    MetricsAccess,
-    MonthlyRow,
-    PostMetrics,
-    Report,
-    month_of,
-)
+from fukugyononuko_social.access.ledger import LedgerAccess
+from fukugyononuko_social.access.metrics import MetricsAccess
+from fukugyononuko_social.domain.channel import Channel, month_of
+from fukugyononuko_social.domain.metrics import AccountSnapshot, MonthlyRow, PostMetrics, Report
 
 RECENT_DAYS = 29
 
@@ -56,29 +50,32 @@ class DefaultAggregationEngine:
             s["profile_clicks"] += p.profile_clicks or 0
             s["link_clicks"] += p.link_clicks or 0
 
-        keys = sorted(set(sums) | set(accounts) | set(costs), key=lambda k: (k[0], k[1].value))
-        monthly = tuple(
-            MonthlyRow(
+        def row(month: str, channel: Channel) -> MonthlyRow:
+            s = sums.get((month, channel), {})
+            a = accounts.get((month, channel))
+            return MonthlyRow(
                 month=month,
                 channel=channel,
-                followers=accounts[(month, channel)].followers if (month, channel) in accounts else None,
-                following=accounts[(month, channel)].following if (month, channel) in accounts else None,
-                posts_created=sums.get((month, channel), {}).get("posts", 0),
-                impressions=sums.get((month, channel), {}).get("impressions", 0),
-                likes=sums.get((month, channel), {}).get("likes", 0),
-                profile_clicks=sums.get((month, channel), {}).get("profile_clicks", 0),
-                link_clicks=sums.get((month, channel), {}).get("link_clicks", 0),
+                followers=a.followers if a else None,
+                following=a.following if a else None,
+                posts_created=s.get("posts", 0),
+                impressions=s.get("impressions", 0),
+                likes=s.get("likes", 0),
+                profile_clicks=s.get("profile_clicks", 0),
+                link_clicks=s.get("link_clicks", 0),
                 cost_jpy=costs.get((month, channel), 0),
             )
-            for month, channel in keys
-        )
 
+        keys = sorted(set(sums) | set(accounts) | set(costs), key=lambda k: (k[0], k[1].value))
         cutoff = now - timedelta(days=RECENT_DAYS)
-        # 同じ表示回数どうしは、チャネルと投稿 ID の順にして並びを一意にする（開発の決まり：並び順の一意性）
-        recent = tuple(
-            sorted(
-                (p for p in posts if p.created_at >= cutoff),
-                key=lambda p: (-(p.impressions or 0), p.channel.value, p.post_id),
-            )
+        # 同じ表示回数どうしは、チャネルと投稿 ID の順にして並びを一意にする
+        recent = sorted(
+            (p for p in posts if p.created_at >= cutoff),
+            key=lambda p: (-(p.impressions or 0), p.channel.value, p.post_id),
         )
-        return Report(generated_at=now, monthly=monthly, recent_posts=recent, last_run=history.last_run)
+        return Report(
+            generated_at=now,
+            monthly=tuple(row(m, c) for m, c in keys),
+            recent_posts=tuple(recent),
+            last_run=history.last_run,
+        )

@@ -20,6 +20,7 @@
 | TC-U10 | A03 遷移 | 許す遷移だけが通り、それ以外は拒否される。同じ下書きを 2 回「送信中」にできない | DD-04 |
 | TC-U13 | 保存先の可変性 | IMMUTABLE の表（`account_snapshots`・`post_metrics`・`charges`）への UPDATE・DELETE がトリガーで拒否される。`drafts` の文章と指紋は更新できない。同じ主キーの保存は重複しない | DD-03 |
 | TC-U11 | 指紋 | NFC の違いで指紋が変わらない。文章が 1 文字変われば変わる | DD-05 |
+| TC-U14 | 直和型 | すべての状態に名前がある。理由のない Fail は作れない。検査の結果がエラーと注意に分かれる | DD-02 |
 | TC-U12 | U01 Secret | `repr`・`str`・ログのどれにも値が出ない | DD-13 |
 
 ## 結合（TC-I）：Manager と偽物の ResourceAccess
@@ -39,8 +40,8 @@
 
 | ID | 確かめること |
 | --- | --- |
-| TC-A01 | 各パッケージの import が利用規則（01 §1.6 の 1〜6）を守る。標準ライブラリの `ast` で import を読み取って検査する |
-| TC-A02 | 具体的な実装を import するのは `composition.py` だけ |
+| TC-A01 | 契約の import が利用規則（01 §1.6 の 1〜6、DD-01 の import の規則）を守る。標準ライブラリの `ast` で import を読み取って検査する。違反を仕込んだファイルを検出できることも確かめる |
+| TC-A02 | 実装（構成要素のパッケージの中のモジュール）を import するのは、同じ構成要素と `composition.py` だけ |
 | TC-A03 | 実行時の依存が標準ライブラリだけ（`pyproject.toml` の `dependencies` が空） |
 
 ## 総合（TC-S）：CLI を通して

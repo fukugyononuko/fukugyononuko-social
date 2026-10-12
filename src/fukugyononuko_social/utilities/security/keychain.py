@@ -1,8 +1,10 @@
-"""CMP-U01 Security：macOS キーチェーンから認証情報を読む（DD-13、EIF-06）。"""
+"""CMP-U01 Security の実装：macOS キーチェーン（EIF-06）。"""
 
 import subprocess
 
-from fukugyononuko_social.contracts import Channel, ExternalFailure, Secret
+from fukugyononuko_social.domain.channel import Channel
+from fukugyononuko_social.domain.errors import ExternalFailure
+from fukugyononuko_social.domain.secret import Secret
 
 ACCOUNT = "fukugyononuko"
 

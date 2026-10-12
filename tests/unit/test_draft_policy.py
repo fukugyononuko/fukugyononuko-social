@@ -2,17 +2,24 @@
 
 import pytest
 
-from fukugyononuko_social.contracts import Channel, Severity
-from fukugyononuko_social.engines.draft_policy import DefaultDraftPolicyEngine, find_urls, x_weighted_length
+from fukugyononuko_social.domain.channel import Channel
+from fukugyononuko_social.domain.drafts import Fail, Pass, Verdict
+from fukugyononuko_social.engines.draft_policy.default import DefaultDraftPolicyEngine
+from fukugyononuko_social.engines.draft_policy.x_text import find_urls
+from fukugyononuko_social.engines.draft_policy.x_text import weighted_length as x_weighted_length
 from tests.fakes import FakeSettings
 
 
-def codes(findings: tuple) -> set[str]:
-    return {f.code for f in findings}
+def errors(verdict: Verdict) -> set[str]:
+    match verdict:
+        case Fail(errors=found):
+            return {f.code for f in found}
+        case Pass():
+            return set()
 
 
-def errors(findings: tuple) -> set[str]:
-    return {f.code for f in findings if f.severity is Severity.ERROR}
+def warnings(verdict: Verdict) -> set[str]:
+    return {f.code for f in verdict.warnings}
 
 
 # TC-U01 文字数
@@ -46,8 +53,8 @@ def test_limit_boundary() -> None:
 def test_url_detected(text: str) -> None:
     assert find_urls(text)
     findings = DefaultDraftPolicyEngine(FakeSettings()).review(Channel.X, text)
-    assert "url" in codes(findings)
-    assert "url" not in errors(findings)  # URL は注意（費用の差）であって不合格ではない
+    assert "url" in warnings(findings)  # URL は注意（費用の差）であって不合格ではない
+    assert isinstance(findings, Pass)
 
 
 def test_no_url_in_plain_text() -> None:
@@ -63,8 +70,9 @@ def test_denylist_matches_case_and_width() -> None:
 
 
 def test_denylist_message_hides_word() -> None:
-    findings = DefaultDraftPolicyEngine(FakeSettings()).review(Channel.X, "これは禁止語いちです")
-    messages = " ".join(f.message for f in findings)
+    verdict = DefaultDraftPolicyEngine(FakeSettings()).review(Channel.X, "これは禁止語いちです")
+    assert isinstance(verdict, Fail)
+    messages = " ".join(f.message for f in verdict.errors)
     assert "禁止語いち" not in messages
     assert "2 行目" in messages  # 1 行目は注釈
 
