@@ -12,7 +12,7 @@
 | | `drafts(status)`、`draft(id)`、`discard(id)` | 下書きの一覧・詳細・破棄 |
 | | `approve(id, fingerprint)` | 指紋が一致すれば承認を記録する |
 | | `publish(id)` | 承認済みの下書きを再検査し、上限を確かめて投稿し、結果と費用を記録する |
-| CMP-E01 AggregationEngine | `summarize(now)` | 保存された時系列から、月ごとの集計と直近の投稿の一覧を作る。各投稿は最新の取得値だけを使い、各月のアカウントの数字はその月の最後の取得値を使う（NFR-05） |
+| CMP-E01 AggregationEngine | `summarize(now)` | 保存された時系列（A02）と費用の記録（A04）から、月ごとの集計と直近の投稿の一覧を作る。各投稿は最新の取得値だけを使い、各月のアカウントの数字はその月の最後の取得値を使う（NFR-05） |
 | CMP-E02 DraftPolicyEngine | `review(channel, text)` | 検査の結果（不合格の理由と注意の一覧）を返す。初期のルール：文字数（X は重みつき 280）、禁止語、URL の有無（あれば注意として費用の差を示す） |
 | CMP-E03 CostEngine | `estimate(usage)` | 課金される操作の一覧（チャネル、操作、件数）をドルと円に換算する |
 | | `afford(cost, month)` | 今月の合計にこの費用を足しても上限以内かを判定する |
@@ -34,7 +34,7 @@
 
 | ID | UC | 呼び出しの順 |
 | --- | --- | --- |
-| CC-01 | UC-01 週次の計測 | C02 → M01.measure → A01.usage_upper_bound → E03.estimate → E03.afford（超えるなら記録して終了）→ A01.account_snapshot → A01.recent_post_metrics → A02.record → E03.estimate（実際の課金）→ A04.record_charge → E01.summarize（A02.history）→ A05.publish_report → U02.record |
+| CC-01 | UC-01 週次の計測 | C02 → M01.measure → A01.usage_upper_bound → E03.estimate → E03.afford（超えるなら記録して終了）→ A01.account_snapshot → A01.recent_post_metrics → A02.record → E03.estimate（実際の課金）→ A04.record_charge → E01.summarize（A02.history、A04 の月ごとの合計）→ A05.publish_report → U02.record |
 | CC-02 | UC-02 登録 | C01 → M02.register_draft → E02.review（A06.denylist）→ E03.estimate → A03.save_draft（合格なら「下書き」、不合格なら「不合格」）→ U02.record |
 | CC-03 | UC-02 承認 | 運営者 → C01 → M02.approve → A03.find → 指紋の照合 → A03.record_approval → U02.record |
 | CC-04 | UC-02 投稿 | C01 → M02.publish → A03.find（「承認済み」か「失敗」だけ）→ 指紋の再照合 → E02.review（送信直前の再検査、NFR-04）→ E03.estimate → E03.afford → A03.mark_sending → A01.post → A03.record_published（失敗なら record_failed）→ A04.record_charge → U02.record |

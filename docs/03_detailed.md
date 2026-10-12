@@ -3,37 +3,54 @@
 ## DD-01 依存とパッケージ構成
 
 - 実行時の依存は **標準ライブラリだけ**（`sqlite3`、`tomllib`、`urllib`、`hashlib`、`hmac`、`unicodedata`、`argparse`）。投稿できる権限を持つ道具なので、サプライチェーンの攻撃面を小さくする（BR-06）。開発時だけ pytest・ruff・ty を使う。
-- 層ごとにパッケージを分け、利用規則（01 §1.6）を import の向きで検査できるようにする（TC-A）。
+- **構成要素ごとにパッケージを作り、契約と実装を同じ場所に置く**。`<層>/<構成要素>/__init__.py` に契約（`typing.Protocol`）、同じパッケージの別のモジュールに実装を置く。
+- 値の型は `domain/` に、話題ごとに分けて置く。
 
 ```
 src/fukugyononuko_social/
-  contracts.py        # 層をまたぐ型と Protocol（DD-02）。どの層も import してよい
-  clients/            # CMP-C01 cli.py、CMP-C02 は deploy/launchd（DD-16）
-  managers/           # CMP-M01 measurement.py、CMP-M02 publishing.py
-  engines/            # CMP-E01 aggregation.py、CMP-E02 draft_policy.py、CMP-E03 cost.py
-  access/             # CMP-A01 channels/x.py、CMP-A02〜A04 sqlite_store.py、CMP-A05 markdown_report.py、CMP-A06 settings.py
-  utilities/          # CMP-U01 security.py、CMP-U02 logging.py、CMP-U03 clock.py
+  domain/             # 値の型（DD-02）。どの層も import してよい
+    channel.py  errors.py  secret.py  money.py  metrics.py  drafts.py
+  utilities/          # CMP-U01 security/、CMP-U02 logging/、CMP-U03 clock/
+  engines/            # CMP-E01 aggregation/、CMP-E02 draft_policy/、CMP-E03 cost/
+  access/             # CMP-A01 channels/、A02 metrics/、A03 drafts/、A04 ledger/、A05 report/、A06 settings/
+  managers/           # CMP-M01 measurement/、CMP-M02 publishing/
+  clients/            # CMP-C01 cli/（CMP-C02 は deploy/launchd。DD-16）
   composition.py      # 具体的な実装を組み立てる唯一の場所（DD-15）
 ```
 
-## DD-02 主な型（`contracts.py`）
+例：`engines/cost/__init__.py` に `CostEngine`（契約）、`engines/cost/default.py` に `DefaultCostEngine`（実装）。
 
-すべて `frozen=True` の dataclass。金額は `Decimal`。
+**import の規則**（TC-A01、TC-A02 で検査する）：
+- 契約は、利用規則（01 §1.6）で呼んでよい層からだけ import できる。
+  - Engine → ResourceAccess・Utility
+  - ResourceAccess → Utility
+  - Manager → Engine・ResourceAccess・Utility
+  - Client → Manager・Utility
+- 同じ層の、別の構成要素の契約は import できない（Utility を除く）。
+- 実装は、同じ構成要素の中と `composition.py` からだけ import できる。
 
-| 型 | 項目 |
+## DD-02 主な型（`domain/`）
+
+すべて `frozen=True` の dataclass。金額は `Decimal`。**状態によって持つ項目が変わるものは、直和型（`type X = A | B`）で表す**。そうすると、ありえない状態（「下書きなのに投稿 ID がある」など）を型の上で作れない。状態で分岐するときは `match` と `assert_never` を使い、扱い漏れを ty に検出させる。
+
+| モジュール | 型 |
 | --- | --- |
-| `Channel` | 列挙：`X`（将来 `THREADS` など） |
-| `Usage` | channel、operation（例：`post_read`）、units |
-| `Cost` | usd、jpy、usages |
-| `AccountSnapshot` | channel、fetched_at、followers、following、posts |
-| `PostMetrics` | channel、post_id、created_at、fetched_at、text_head（冒頭 60 文字）、impressions、likes、replies、reposts、quotes、bookmarks、profile_clicks、link_clicks（取れない項目は `None`） |
-| `Finding` | severity（`error` / `warning`）、code、message |
-| `Draft` | id、channel、text、fingerprint、status、findings、estimate、created_at、approved_at、post_id、published_at、error |
-| `DraftStatus` | 列挙：不合格、下書き、承認済み、送信中、投稿済み、失敗、破棄（02a §2a.1） |
-| `Report` | monthly（行の一覧）、recent_posts、last_run |
-| `Secret` | 認証情報を包む。`repr` と `str` は `Secret(***)` を返す（DD-13） |
+| `channel.py` | `Channel`（列挙：`X`。将来 `THREADS` など）、`month_of`（日本時間の YYYY-MM） |
+| `errors.py` | `Outcome`（ok / rejected / failed）、`BusinessRejection`、`UsageError`、`ExternalFailure`（DD-18） |
+| `secret.py` | `Secret`：`repr`・`str`・`format` は `Secret(***)`。保存・複製（pickle）はできない（DD-13） |
+| `money.py` | `Usage`（channel、operation、units）、`Cost`（usd、jpy、usages）、`Budget`、`BudgetStatus` |
+| `metrics.py` | `AccountSnapshot`、`PostMetrics`、`MeasurementRun = Running \| Finished`、`MetricsHistory`、`MonthlyRow`、`Report` |
+| `drafts.py` | `Finding`、`Verdict = Pass \| Fail`、`DraftState`、`Draft`、`DraftStatus`、`PublishedPost`、`fingerprint` |
 
-構成要素の契約（02b §2b.1）は `typing.Protocol` で定義する。
+**直和型にするもの**：
+
+| 型 | 場合 | それぞれが持つ項目 |
+| --- | --- | --- |
+| `Verdict`（検査の結果） | `Pass` / `Fail` | Pass：注意の一覧。Fail：理由（1 件以上）と注意の一覧 |
+| `DraftState`（下書きの状態） | `Rejected` / `Pending` / `Approved` / `Sending` / `Published` / `Failed` / `Discarded` | Rejected：理由。Approved・Sending：承認の時刻。Published：承認の時刻、投稿 ID、投稿の時刻。Failed：承認の時刻、エラー文 |
+| `MeasurementRun`（計測 1 回分） | `Running` / `Finished` | Finished だけが、終了の時刻と結果を持つ |
+
+`PostMetrics` の `None`（チャネルによって取れない数字）は、状態ではなくデータの欠けなので、Optional のままにする。`Draft` は、変わらない項目（番号、チャネル、文章、指紋、注意、見積もり、作成の時刻）と、`state: DraftState` を持つ。保存先の行と直和型の変換は、CMP-A03（DraftAccess）の中で 1 回だけ行う。
 
 ## DD-03 保存先のスキーマ（SQLite、EIF-02）
 
@@ -128,7 +145,7 @@ MUTABLE は UPDATE か DELETE がある表、IMMUTABLE は INSERT だけの表�
 
 ## DD-04 下書きの状態遷移（CMP-A03）
 
-許す遷移だけを表で持ち、`UPDATE drafts SET status = 新 WHERE id = ? AND status = 旧` の形で更新する。更新した行が 0 なら拒否する。2 つの実行が同時に送ろうとしても、片方しか「送信中」にできない（NFR-06）。
+状態は直和型 `DraftState`（DD-02）で表す。保存先には状態の名前（`DraftStatus`）と、その状態が持つ項目を列に書く。許す遷移だけを表で持ち、`UPDATE drafts SET status = 新 WHERE id = ? AND status = 旧` の形で更新する。更新した行が 0 なら拒否する。2 つの実行が同時に送ろうとしても、片方しか「送信中」にできない（NFR-06）。
 
 | 旧 | 新 |
 | --- | --- |
@@ -140,7 +157,7 @@ MUTABLE は UPDATE か DELETE がある表、IMMUTABLE は INSERT だけの表�
 
 ## DD-05 指紋
 
-`sha256(channel + "\n" + NFC(text))` の 16 進 64 桁を保存し、先頭 8 桁を表示する。承認では、入力された 8 桁と保存された値の先頭を比べ、さらに今の文章から計算し直した値とも比べる（保存後に文章が変わっていないことを確かめる）。
+`contracts.fingerprint` で `sha256(channel + "\n" + NFC(text))` を計算し、16 進 64 桁を保存して、先頭 8 桁を表示する。承認では、入力された 8 桁と保存された値の先頭を比べ、さらに今の文章から計算し直した値とも比べる（保存後に文章が変わっていないことを確かめる）。
 
 ## DD-06 文字数（CMP-E02、X）
 
@@ -164,6 +181,7 @@ X の公式の数え方（[Counting characters](https://docs.x.com/fundamentals/
 ## DD-08 費用（CMP-E03）
 
 - 単価は `settings.toml` の単価表から読む（VOL-02）。円は `ドル × 為替` を 1 円単位に切り上げる。
+- 「月」は日本時間（Asia/Tokyo）で区切る（`contracts.month_of`）。保存する時刻は UTC のまま。
 - `afford`：`今月の合計 + 今回の見積もり ≤ 上限`。
 - 計測の前の見積もり（`usage_upper_bound`）は、ユーザーの読み取り 1 件と、投稿の読み取り 100 件で見積もる。
 - 本人のデータの割引（Owned Reads）が当たるかどうかは確かめられないので、単価表は割引のない単価で始める。実際の請求と比べて、高すぎれば直す。
@@ -193,6 +211,7 @@ X の公式の数え方（[Counting characters](https://docs.x.com/fundamentals/
 
 ## DD-10 集計（CMP-E01）
 
+- 月は日本時間で区切る（DD-08）。
 - 投稿：投稿ごとに `fetched_at` が最大の行だけを使い、`created_at` の月ごとに合計する。
 - アカウント：月ごとに、その月の最後の取得値を使う。
 - 費用：`charges` を月ごとに合計する。

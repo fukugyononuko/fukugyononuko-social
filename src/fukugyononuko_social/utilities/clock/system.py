@@ -1,0 +1,8 @@
+"""CMP-U03 Clock の実装：OS の時計。"""
+
+from datetime import UTC, datetime
+
+
+class SystemClock:
+    def now(self) -> datetime:
+        return datetime.now(UTC)
