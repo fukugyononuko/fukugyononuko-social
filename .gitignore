@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.privacy-denylist
+# 取得した数字・下書き・認証情報はリポジトリに入れない（NFR-01、NFR-02）
+*.sqlite
+*.sqlite3
+*.db
+.env

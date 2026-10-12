@@ -1,0 +1,30 @@
+[project]
+name = "fukugyononuko-social"
+version = "0.1.0"
+description = "SNS の数字の取得と、承認つきの投稿をまとめて扱う｜副業のぬこ"
+authors = [
+    { name = "fukugyononuko", email = "340638804+fukugyononuko@users.noreply.github.com" }
+]
+license = "MIT"
+requires-python = ">=3.14"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 130
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.17.0",
+    "ty>=0.0.86",
+]
