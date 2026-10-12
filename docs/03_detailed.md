@@ -30,7 +30,10 @@ src/fukugyononuko_social/
 | `Finding` | severity（`error` / `warning`）、code、message |
 | `Draft` | id、channel、text、fingerprint、status、findings、estimate、created_at、approved_at、post_id、published_at、error |
 | `DraftStatus` | 列挙：不合格、下書き、承認済み、送信中、投稿済み、失敗、破棄（02a §2a.1） |
-| `Report` | monthly（行の一覧）、recent_posts、last_run |
+| `Report` | generated_at、monthly（`MonthlyRow` の一覧：月、チャネル、フォロワー、フォロー、その月の投稿数、表示、いいね、プロフィールのクリック、リンクのクリック、費用）、recent_posts、last_run |
+| `MetricsHistory` | accounts、posts、last_run（`MeasurementRun`） |
+| `Budget`・`BudgetStatus` | 上限と為替／月、使った額、上限、残り |
+| `PublishedPost` | channel、post_id、usages |
 | `Secret` | 認証情報を包む。`repr` と `str` は `Secret(***)` を返す（DD-13） |
 
 構成要素の契約（02b §2b.1）は `typing.Protocol` で定義する。
@@ -140,7 +143,7 @@ MUTABLE は UPDATE か DELETE がある表、IMMUTABLE は INSERT だけの表�
 
 ## DD-05 指紋
 
-`sha256(channel + "\n" + NFC(text))` の 16 進 64 桁を保存し、先頭 8 桁を表示する。承認では、入力された 8 桁と保存された値の先頭を比べ、さらに今の文章から計算し直した値とも比べる（保存後に文章が変わっていないことを確かめる）。
+`contracts.fingerprint` で `sha256(channel + "\n" + NFC(text))` を計算し、16 進 64 桁を保存して、先頭 8 桁を表示する。承認では、入力された 8 桁と保存された値の先頭を比べ、さらに今の文章から計算し直した値とも比べる（保存後に文章が変わっていないことを確かめる）。
 
 ## DD-06 文字数（CMP-E02、X）
 
@@ -164,6 +167,7 @@ X の公式の数え方（[Counting characters](https://docs.x.com/fundamentals/
 ## DD-08 費用（CMP-E03）
 
 - 単価は `settings.toml` の単価表から読む（VOL-02）。円は `ドル × 為替` を 1 円単位に切り上げる。
+- 「月」は日本時間（Asia/Tokyo）で区切る（`contracts.month_of`）。保存する時刻は UTC のまま。
 - `afford`：`今月の合計 + 今回の見積もり ≤ 上限`。
 - 計測の前の見積もり（`usage_upper_bound`）は、ユーザーの読み取り 1 件と、投稿の読み取り 100 件で見積もる。
 - 本人のデータの割引（Owned Reads）が当たるかどうかは確かめられないので、単価表は割引のない単価で始める。実際の請求と比べて、高すぎれば直す。
@@ -193,6 +197,7 @@ X の公式の数え方（[Counting characters](https://docs.x.com/fundamentals/
 
 ## DD-10 集計（CMP-E01）
 
+- 月は日本時間で区切る（DD-08）。
 - 投稿：投稿ごとに `fetched_at` が最大の行だけを使い、`created_at` の月ごとに合計する。
 - アカウント：月ごとに、その月の最後の取得値を使う。
 - 費用：`charges` を月ごとに合計する。
