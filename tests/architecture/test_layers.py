@@ -81,7 +81,11 @@ def violations() -> list[str]:
             if dst.layer == "domain":
                 continue
             same_component = (src.layer, src.component) == (dst.layer, dst.component)
-            if dst.is_implementation:
+            if dst.component is not None and dst.component.startswith("_"):
+                # 層で共有する部品（例：access/_sqlite.py）は、同じ層の実装だけが使える（DD-01）
+                if not (src.layer == dst.layer and src.is_implementation) and src.layer != "composition":
+                    problems.append(f"{path.relative_to(ROOT)}：層の共有部品 {'.'.join(parts)} は同じ層の実装だけが使える")
+            elif dst.is_implementation:
                 if not same_component and src.layer != "composition":
                     problems.append(f"{path.relative_to(ROOT)}：実装 {'.'.join(parts)} を import している（TC-A02）")
             elif not same_component and dst.layer not in INTERFACES[src.layer]:
@@ -101,14 +105,15 @@ def test_a01_detects_planted_violations() -> None:
     planted.write_text(
         "from fukugyononuko_social.engines.aggregation import AggregationEngine\n"
         "from fukugyononuko_social.access.ledger.sqlite import X\n"
-        "from fukugyononuko_social.managers.measurement import M\n",
+        "from fukugyononuko_social.managers.measurement import M\n"
+        "from fukugyononuko_social.access._sqlite import connect\n",
         encoding="utf-8",
     )
     try:
         found = violations()
     finally:
         planted.unlink()
-    assert len([p for p in found if "zz_planted" in p]) == 3
+    assert len([p for p in found if "zz_planted" in p]) == 4
 
 
 def test_a03_runtime_dependencies_are_stdlib_only() -> None:

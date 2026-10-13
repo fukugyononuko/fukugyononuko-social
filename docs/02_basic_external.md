@@ -7,7 +7,7 @@
 | ID | コマンド | 内容 | 使う人 | 要件 |
 | --- | --- | --- | --- | --- |
 | CLI-01 | `nukosns draft add --channel x (--text TEXT \| --file PATH)` | 下書きを登録し、検査の結果・費用の見積もり・番号・指紋を表示する | Claude Code | FR-06 |
-| CLI-02 | `nukosns draft list [--status STATUS]` | 下書きの一覧を表示する | 両方 | FR-06 |
+| CLI-02 | `nukosns draft list [--status STATUS]` | 下書きの一覧を表示する。STATUS は `rejected`・`pending`・`approved`・`sending`・`published`・`failed`・`discarded` | 両方 | FR-06 |
 | CLI-03 | `nukosns draft show ID` | 下書きの全文・検査の結果・費用・指紋・状態を表示する | 両方 | FR-06 |
 | CLI-04 | `nukosns draft discard ID` | 下書きを破棄する（投稿済みのものは破棄できない） | 両方 | FR-06 |
 | CLI-05 | `nukosns approve ID FINGERPRINT` | 下書きを承認する。指紋が今の文章と一致しないと承認しない | **運営者だけ**（EIF-09） | FR-07 |
