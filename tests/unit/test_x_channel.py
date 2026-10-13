@@ -11,7 +11,8 @@ import pytest
 from fukugyononuko_social.access.channels import _oauth1
 from fukugyononuko_social.access.channels.x import Response, XChannelAccess
 from fukugyononuko_social.domain.channel import Channel
-from fukugyononuko_social.domain.errors import ExternalFailure
+from fukugyononuko_social.domain.errors import ExternalFailure, UncertainPost
+from fukugyononuko_social.domain.metrics import PartialFetch
 from fukugyononuko_social.domain.money import Usage
 from fukugyononuko_social.domain.secret import Secret
 
@@ -199,3 +200,30 @@ def test_post_returns_id_and_usage() -> None:
     assert request.get_method() == "POST"
     assert isinstance(request.data, bytes)
     assert json.loads(request.data) == {"text": "こんにちは"}
+
+
+# ---- TC-U15：失敗の知らせ方（DD-09） ----
+
+
+def test_u15_partial_fetch_carries_usages_and_posts() -> None:
+    page1 = {"data": [tweet("1", 10)], "meta": {"next_token": "t2"}}
+    transport = FakeTransport(ok(ME), ok(page1), *(Response(503, {}, b"{}") for _ in range(3)))
+    with pytest.raises(PartialFetch) as caught:
+        make(transport, []).recent_post_metrics(SINCE, AT)
+    assert caught.value.usages == (Usage(Channel.X, "user_read", 1), Usage(Channel.X, "post_read", 1))
+    assert [p.post_id for p in caught.value.posts] == ["1"]
+
+
+@pytest.mark.parametrize(
+    "failure", [Response(503, {}, b"{}"), urllib.error.URLError("timeout"), TimeoutError()], ids=["5xx", "url", "timeout"]
+)
+def test_u15_post_without_clear_answer_is_uncertain(failure: Response | Exception) -> None:
+    with pytest.raises(UncertainPost):
+        make(FakeTransport(failure)).post("こんにちは", "post_create")
+
+
+def test_u15_post_4xx_is_a_clear_failure() -> None:
+    transport = FakeTransport(Response(403, {}, json.dumps({"detail": "duplicate"}).encode()))
+    with pytest.raises(ExternalFailure, match="403") as caught:
+        make(transport).post("こんにちは", "post_create")
+    assert not isinstance(caught.value, UncertainPost)

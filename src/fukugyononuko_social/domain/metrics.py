@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from fukugyononuko_social.domain.channel import Channel
-from fukugyononuko_social.domain.errors import Outcome
+from fukugyononuko_social.domain.errors import ExternalFailure, Outcome
+from fukugyononuko_social.domain.money import Usage
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,3 +84,22 @@ class Report:
     monthly: tuple[MonthlyRow, ...]
     recent_posts: tuple[PostMetrics, ...]
     last_run: MeasurementRun | None
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementSummary:
+    """計測 1 回分の結果（DD-19）。"""
+
+    run_id: int
+    accounts: int
+    posts: int
+    cost_jpy: int
+
+
+class PartialFetch(ExternalFailure):
+    """取得の途中の失敗（DD-09）。それまでに課金された操作と、取れた投稿を持つ。"""
+
+    def __init__(self, message: str, *, usages: tuple[Usage, ...] = (), posts: tuple[PostMetrics, ...] = ()) -> None:
+        super().__init__(message)
+        self.usages = usages
+        self.posts = posts

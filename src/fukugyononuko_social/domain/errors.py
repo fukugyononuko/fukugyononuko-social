@@ -19,3 +19,7 @@ class UsageError(Exception):
 
 class ExternalFailure(Exception):
     """API・キーチェーン・保存先の失敗。終了コード 3。"""
+
+
+class UncertainPost(ExternalFailure):
+    """投稿されたかどうかわからない失敗（5xx・タイムアウト・接続の失敗。DD-09）。下書きは「送信中」のまま残す。"""
