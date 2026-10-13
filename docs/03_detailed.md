@@ -28,6 +28,7 @@ src/fukugyononuko_social/
   - Client → Manager・Utility
 - 同じ層の、別の構成要素の契約は import できない（Utility を除く）。
 - 実装は、同じ構成要素の中と `composition.py` からだけ import できる。
+- `_` で始まるモジュール（例：`access/_sqlite.py`。接続・スキーマ・トリガー）は、層で共有する部品で、同じ層の実装だけが import できる。
 
 ## DD-02 主な型（`domain/`）
 
@@ -97,10 +98,12 @@ erDiagram
     text channel
     text text
     text fingerprint "64 桁"
-    text status
-    text findings "JSON"
+    text status "pending など（DraftStatus の値）"
+    text errors "JSON。不合格のときだけ中身がある"
+    text warnings "JSON"
     text estimate_usd
-    text estimate_jpy
+    integer estimate_jpy
+    text estimate_usages "JSON"
     text created_at
     text approved_at
     text post_id
@@ -114,10 +117,9 @@ erDiagram
     integer run_id FK "計測のとき"
     integer draft_id FK "投稿のとき"
     text channel
-    text operation
-    integer units
+    text usages "JSON（operation と units の一覧）"
     text usd
-    text jpy
+    integer jpy
   }
 ```
 
@@ -138,7 +140,9 @@ MUTABLE は UPDATE か DELETE がある表、IMMUTABLE は INSERT だけの表�
 - IMMUTABLE の表は過去の値を残すので、伸び方を時系列で追える。
 
 - **`followers`・`following`・`posts` は人数・件数**。フォロワーの名前や一覧は取らない（要件にないうえ、一覧の取得は 1 件ごとに課金され、他人の情報を持つことにもなるため）。
-- `charges` は `run_id` と `draft_id` のどちらか一方だけを持つ。
+- `charges` は `run_id` と `draft_id` のどちらか一方だけを持つ（CHECK 制約）。1 行は 1 つのチャネルの費用で、内訳（操作と件数）は `usages` に JSON で持つ。
+- `drafts.status` には `DraftStatus` の値（`pending` など）を保存する。日本語の名前（「下書き」など）は表示にだけ使う。
+- MUTABLE の表も、変えてよい列と操作をトリガーで絞る：`drafts` の文章・指紋・チャネル・作成の時刻は更新できず、行は削除できない。`measurement_runs` は終了したあと更新できず、削除できない。
 - `post_metrics.post_id` と `drafts.post_id` は外部キーにしない。手で投稿したものも計測するため。
 - 時刻は UTC の ISO 8601 の文字列。金額は `Decimal` の文字列。`schema_version` 表（列は version だけ）で、スキーマの版を管理する。
 - 同じ時刻の取得をもう一度保存しても、主キーで重複しない（NFR-05）。

@@ -99,15 +99,30 @@ type DraftState = Rejected | Pending | Approved | Sending | Published | Failed |
 
 
 class DraftStatus(StrEnum):
-    """状態の名前（保存・一覧の絞り込み・表示に使う）。"""
+    """状態の名前。値は保存とコマンドの引数に使い、label は表示に使う。"""
 
-    REJECTED = "不合格"
-    PENDING = "下書き"
-    APPROVED = "承認済み"
-    SENDING = "送信中"
-    PUBLISHED = "投稿済み"
-    FAILED = "失敗"
-    DISCARDED = "破棄"
+    REJECTED = "rejected"
+    PENDING = "pending"
+    APPROVED = "approved"
+    SENDING = "sending"
+    PUBLISHED = "published"
+    FAILED = "failed"
+    DISCARDED = "discarded"
+
+    @property
+    def label(self) -> str:
+        return _LABELS[self]
+
+
+_LABELS = {
+    DraftStatus.REJECTED: "不合格",
+    DraftStatus.PENDING: "下書き",
+    DraftStatus.APPROVED: "承認済み",
+    DraftStatus.SENDING: "送信中",
+    DraftStatus.PUBLISHED: "投稿済み",
+    DraftStatus.FAILED: "失敗",
+    DraftStatus.DISCARDED: "破棄",
+}
 
 
 def status_of(state: DraftState) -> DraftStatus:

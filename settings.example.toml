@@ -1,0 +1,16 @@
+# nukosns の設定の例（DD-12）。~/fukugyononuko/data/fukugyononuko-social/settings.toml に写して使う。
+# 実際の設定ファイルはリポジトリに入れない。
+
+[budget]
+monthly_cap_jpy = 500  # 月の費用の上限（円）
+usd_jpy = 170          # 換算に使う為替。実際より円安の値にして、上限を超えないようにする
+
+[paths]
+denylist = "~/fukugyononuko/projects/fukugyononuko.github.io/.privacy-denylist"
+report = "~/fukugyononuko/vault/50-Metrics/SNS.md"
+
+[prices.x]  # ドル。2026-10-12 に公式の料金ページで確認（DD-08）
+user_read = "0.010"
+post_read = "0.005"
+post_create = "0.015"
+post_create_with_url = "0.200"
