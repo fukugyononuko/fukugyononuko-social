@@ -7,7 +7,7 @@
 | 構成要素 | 操作 | 内容 |
 | --- | --- | --- |
 | CMP-M01 MeasurementManager | `measure()` | UC-01 を 1 回実行し、結果（成功・失敗、件数、費用）を返す |
-| | `cost_status(month)` | UC-03。その月の費用の合計・上限・残り |
+| | `cost_status(month)` | UC-03。その月（省略すると今月）の費用の合計・上限・残り |
 | CMP-M02 PublishingManager | `register_draft(channel, text)` | 検査と見積もりをして下書きを保存し、番号・指紋・検査の結果を返す |
 | | `drafts(status)`、`draft(id)`、`discard(id)` | 下書きの一覧・詳細・破棄 |
 | | `approve(id, fingerprint)` | 指紋が一致すれば承認を記録する |
@@ -19,15 +19,15 @@
 | | `status(month)` | 今月の合計・上限・残り |
 | CMP-A01 ChannelAccess | `account_snapshot()` | アカウントの数字（共通の項目名）と、課金された操作 |
 | | `recent_post_metrics(since)` | 直近の投稿ごとの数字（共通の項目名）と、課金された操作 |
-| | `post(text)` | 投稿し、投稿 ID と課金された操作を返す |
-| | `usage_upper_bound(operation)` | 実行前の見積もりに使う、課金される操作の上限 |
+| | `post(text, operation)` | 投稿し、投稿 ID と課金された操作を返す。operation は費用の操作の名前（DD-20） |
+| | `usage_upper_bound()` | 計測 1 回分の、課金される操作の上限（実行前の見積もりに使う） |
 | CMP-A02 MetricsAccess | `record(snapshot)`、`history(since)` | 取得した数字を時刻つきで保存する／読み出す |
 | CMP-A03 DraftAccess | `save_draft`、`find`、`list`、`record_approval`、`mark_sending`、`record_published`、`record_failed`、`discard` | 下書きの状態の遷移（02a §2a.1）を保存する。不正な遷移は拒否する |
 | CMP-A04 LedgerAccess | `record_charge(charge)`、`month_total(month)` | 費用の記録と、月の合計 |
 | CMP-A05 ReportAccess | `publish_report(report)` | 集計を書き出し先に書く（全体を置き換える） |
 | CMP-A06 SettingsAccess | `price_table()`、`budget()`、`denylist()` | 単価表、為替と上限、禁止語 |
 | CMP-U01 Security | `credential(channel, name)` | 認証情報を返す。値を文字列表現やログに出さない型で包む |
-| CMP-U02 Logging | `record(event)` | 実行の記録を 1 件残す |
+| CMP-U02 Logging | `record(event)`、`recent(n)` | 実行の記録を 1 件残す／最後の n 件を読む |
 | CMP-U03 Clock | `now()` | 現在時刻（UTC） |
 
 ## 2b.2 コールチェーン（CC）
@@ -40,7 +40,7 @@
 | CC-04 | UC-02 投稿 | C01 → M02.publish → A03.find（「承認済み」か「失敗」だけ）→ 指紋の再照合 → E02.review（送信直前の再検査、NFR-04）→ E03.estimate → E03.afford → A03.mark_sending → A01.post → A03.record_published（失敗なら record_failed）→ A04.record_charge → U02.record |
 | CC-05 | UC-03 費用の確認 | C01 → M01.cost_status → E03.status（A04.month_total、A06.budget） |
 
-- CC-01 で取得の途中に失敗したら、取れた分だけ保存し、集計は前回のまま残して、失敗を記録する（FR-12）。
+- CC-01 で取得の途中に失敗したら、取れた分だけ保存し、集計は前回のまま残して、失敗を記録する（FR-12）。チャネルが 2 つ以上なら、失敗したチャネルがあっても残りのチャネルは続ける（DD-19）。
 - CC-04 で「送信中」にしてから投稿する。投稿の直後に落ちても、再送で二重に投稿しない（NFR-06）。
 
 ## 2b.3 共通の項目名（VOL-03）
