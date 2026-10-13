@@ -7,7 +7,8 @@ from fukugyononuko_social.access.channels import ChannelAccess
 from fukugyononuko_social.access.drafts import DraftAccess
 from fukugyononuko_social.access.ledger import LedgerAccess
 from fukugyononuko_social.domain.channel import Channel, month_of
-from fukugyononuko_social.domain.drafts import Draft, DraftStatus, Fail, Pass, Verdict, fingerprint
+from fukugyononuko_social.domain.drafts import Draft, DraftStatus, Fail, Pass, Verdict
+from fukugyononuko_social.domain.drafts import fingerprint as fingerprint_of
 from fukugyononuko_social.domain.errors import BusinessRejection, ExternalFailure, Outcome, UncertainPost
 from fukugyononuko_social.domain.money import Usage
 from fukugyononuko_social.engines.cost import CostEngine
@@ -61,10 +62,10 @@ class DefaultPublishingManager:
     def discard(self, draft_id: int) -> Draft:
         return self._logged("discard", lambda: self._drafts.discard(draft_id), draft=draft_id)
 
-    def approve(self, draft_id: int, given: str) -> Draft:
+    def approve(self, draft_id: int, fingerprint: str) -> Draft:
         def run() -> Draft:
             draft = self._drafts.find(draft_id)
-            prefix = given.strip().lower()
+            prefix = fingerprint.strip().lower()
             if len(prefix) < MIN_FINGERPRINT or not _HEX.fullmatch(prefix):
                 raise BusinessRejection(f"指紋は {MIN_FINGERPRINT} 文字以上の 16 進で指定してください")
             self._verify_integrity(draft)
@@ -112,7 +113,7 @@ class DefaultPublishingManager:
         return self._logged("publish", run, draft=draft_id)
 
     def _verify_integrity(self, draft: Draft) -> None:
-        if fingerprint(draft.channel, draft.text) != draft.fingerprint:
+        if fingerprint_of(draft.channel, draft.text) != draft.fingerprint:
             raise BusinessRejection(f"下書き {draft.id} の文章と指紋が合いません。保存先を確かめてください")
 
     def _logged(self, command: str, action: Callable[[], Draft], **detail: int | str) -> Draft:
