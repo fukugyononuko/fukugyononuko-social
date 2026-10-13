@@ -14,7 +14,7 @@ src/fukugyononuko_social/
   engines/            # CMP-E01 aggregation/、CMP-E02 draft_policy/、CMP-E03 cost/
   access/             # CMP-A01 channels/、A02 metrics/、A03 drafts/、A04 ledger/、A05 report/、A06 settings/
   managers/           # CMP-M01 measurement/、CMP-M02 publishing/
-  clients/            # CMP-C01 cli/（CMP-C02 は deploy/launchd。DD-16）
+  clients/            # CMP-C01 cli/（__init__ に CLI が使うものの組 App、main.py に argparse）。CMP-C02 は deploy/launchd（DD-16）
   composition.py      # 具体的な実装を組み立てる唯一の場所（DD-15）
 ```
 
