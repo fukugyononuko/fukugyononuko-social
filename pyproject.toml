@@ -18,6 +18,8 @@ build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 130
+# hook は Claude Code が macOS の python3（3.9）で動かすので、3.9 の文法に保つ（DD-17）
+per-file-target-version = { "deploy/claude/*.py" = "py39" }
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

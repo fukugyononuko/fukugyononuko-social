@@ -264,7 +264,7 @@ post_create_with_url = "0.200"
 
 - `composition.py` だけが具体的な実装（X 用の ChannelAccess、SQLite、キーチェーンなど）を知っている。動かす場所を変えるときは、ここで差し替える（VOL-08〜VOL-12）。
 - CLI（`clients/cli/`）は Manager の契約と Utility だけを知る。組み立ては、引数で受け取った関数（`build`）に任せる。Client は組み立てを import できない（DD-01）ため、入口の `main` は `composition.py` に置き、`clients.cli.run(argv, build)` を呼ぶ。
-- `pyproject.toml` の `[project.scripts]` に `nukosns = "fukugyononuko_social.composition:main"` を登録する。
+- `pyproject.toml` の `[project.scripts]` に `nukosns = "fukugyononuko_social.composition:main"` を登録する。入れ方は DD-16。
 - 保存先のフォルダは `~/fukugyononuko/data/fukugyononuko-social/`。環境変数 `NUKOSNS_HOME` で変えられる（総合テストで使う）。その中に `settings.toml`、`nukosns.sqlite`、`logs/nukosns.log` を置く。
 - CLI は `argparse` で作り、例外を終了コードに変換する：`BusinessRejection` → 1、`UsageError` → 2、`ExternalFailure`（`UncertainPost`・`PartialFetch` を含む）→ 3。エラー文は標準エラーに `エラー：…` の形で出す。
 - 表示は日本語の文章と表だけにする（JSON の出力は作らない。2026-10-14 に運営者が決定）。下書きの登録と詳細では、承認のコマンド（`! nukosns approve 番号 指紋`）も示す。
@@ -295,21 +295,40 @@ post_create_with_url = "0.200"
 
 ## DD-16 定期実行（CMP-C02、EIF-08）
 
-- `deploy/launchd/com.fukugyononuko.nukosns.measure.plist` を雛形として置き、`scripts/install_launchd.py` で `~/Library/LaunchAgents/` に置いて読み込む。
+- `nukosns` は `uv tool install --editable <リポジトリ>` で入れる（`~/.local/bin/nukosns`）。editable なので、コードの変更はそのまま反映される（2026-10-14 に運営者が決定）。
+- `deploy/launchd/com.fukugyononuko.nukosns.measure.plist` を雛形として置き、`scripts/install_launchd.py` で `~/Library/LaunchAgents/` に書き出して読み込む（`launchctl bootout` → `launchctl bootstrap gui/<uid>`）。
+  - 雛形には、利用者ごとの場所を書かない（公開リポジトリのため）。`{NUKOSNS}`（`nukosns` の場所）と `{LOGS}`（ログのフォルダ）を、書き出すときに埋める。
 - `StartCalendarInterval` を月曜（`Weekday` 1）の 9:00 にする。眠っていた場合は、起きたときに launchd が実行する。
-- 実行するのは `uv run --project <リポジトリ> nukosns measure`。標準出力と標準エラーは、ログのフォルダに書く。
+- 実行するのは `nukosns measure`。標準出力と標準エラーは、ログのフォルダの `launchd.out.log`・`launchd.err.log` に書く。
+- 初回の計測は、定期実行を入れる前に手で 1 回実行し、集計のファイルと費用の記録を確かめる（2026-10-14 に運営者が決定）。
 
 ## DD-17 承認の制限（EIF-09）
 
-`~/fukugyononuko/.claude/settings.json` の `permissions.deny` に次を入れる。承認は、運営者が `!` を付けて自分で実行する。
+Claude Code が誤って承認することを防ぐ。指紋（DD-05）と合わせて、承認は「運営者が見た文章そのもの」に結びつく。承認は、運営者が `!` を付けて自分で実行する。2 重にする（2026-10-14 に運営者が決定）。
+
+1. **禁止ルール**：`~/fukugyononuko/.claude/settings.json` の `permissions.deny` に入れる。
 
 ```json
-["Bash(nukosns approve:*)", "Bash(uv run nukosns approve:*)", "Bash(uv run --project * nukosns approve:*)"]
+[
+  "Bash(nukosns approve *)",
+  "Bash(* nukosns approve *)",
+  "Bash(uv run nukosns approve *)",
+  "Bash(uv run --project * nukosns approve *)",
+  "Bash(.venv/bin/nukosns approve *)",
+  "Bash(python -m fukugyononuko_social.composition approve *)",
+  "Bash(python3 -m fukugyononuko_social.composition approve *)"
+]
 ```
 
-パターンの書き方（途中の `*` が使えるか）は、実装のときに Claude Code の公式ドキュメントで確かめる。
+2. **hook**：同じファイルの `hooks.PreToolUse`（matcher `Bash`）で `deploy/claude/block_approve.py` を呼ぶ。標準入力の `tool_input.command` に、承認のコマンドが含まれていれば、終了コード 2 で止める。
 
-これは、Claude Code が誤って承認することを防ぐ仕組み。指紋（DD-05）と合わせて、承認は「運営者が見た文章そのもの」に結びつく。
+- 2026-10-14 に [公式ドキュメント](https://code.claude.com/docs/en/permissions.md) で確かめたこと：
+  - `*` は空白も含めて任意の文字列に合い、パターンのどこにでも置ける。`:*` は末尾の `*` と同じ意味。
+  - `&&`・`;`・`|` などでつないだコマンドは、それぞれのコマンドが照合される。
+  - 禁止ルールはどのモードでも効く（`bypassPermissions` でも）。
+  - ただし、禁止ルールはコマンドの文字列の照合で、「セキュリティの境界ではない」（`bash -c '…'` などの別の書き方には合わない）。そこで hook を重ねる。
+- hook の判定：1 つのコマンド（`;`・`&`・`|`・改行で区切った単位）の中に、`nukosns` または `fukugyononuko_social.composition` があり、そのあとに単語 `approve` があれば止める。`grep "nukosns approve"` のような検索も止まるが、検索は Grep の道具を使えば済むので、止める側に倒す。
+- `!` で運営者が打つコマンドに、禁止ルールと hook が効くかどうかは、ドキュメントに書かれていない。2026-10-14 に実際に打って確かめ、効かない（運営者は承認できる）ことを確認した。Claude からの同じコマンドは hook が止めた。
 
 ## DD-21 まとめて確定する書き込み（CMP-A07）
 
