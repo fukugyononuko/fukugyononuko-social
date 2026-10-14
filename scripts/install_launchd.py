@@ -6,7 +6,6 @@
 
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -22,17 +21,26 @@ def render(template: str, nukosns: Path, logs: Path) -> str:
     return template.replace("{NUKOSNS}", escape(str(nukosns))).replace("{LOGS}", escape(str(logs)))
 
 
+def installed_nukosns() -> Path | None:
+    """`uv tool install` で入れた nukosns の場所。`uv run` の中で実行しても、リポジトリの .venv のものは使わない。"""
+    result = subprocess.run(["uv", "tool", "dir", "--bin"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return None
+    path = Path(result.stdout.strip()) / "nukosns"
+    return path if path.exists() else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true", help="書き出す内容を表示するだけ")
     args = parser.parse_args()
 
-    found = shutil.which("nukosns")
-    if found is None:
+    nukosns = installed_nukosns()
+    if nukosns is None:
         print("nukosns が見つかりません。先に `uv tool install --editable .` を実行してください", file=sys.stderr)
         return 2
     logs = Path(os.environ.get("NUKOSNS_HOME", DEFAULT_HOME)).expanduser() / "logs"
-    plist = render(TEMPLATE.read_text(encoding="utf-8"), Path(found).resolve(), logs)
+    plist = render(TEMPLATE.read_text(encoding="utf-8"), nukosns, logs)
     if args.dry_run:
         print(plist)
         return 0
