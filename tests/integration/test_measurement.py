@@ -1,4 +1,4 @@
-"""TC-I01〜I03、I08、I09、TC-R01、R02：CMP-M01 MeasurementManager と偽物の ResourceAccess（CC-01、CC-05、DD-19）。
+"""TC-I01〜I03、I08、I09、I11、TC-R01、R02：CMP-M01 MeasurementManager と偽物の ResourceAccess（CC-01、CC-05、DD-19）。
 
 保存先は、メモリ上の偽物（FakeMetrics・FakeLedger）に差し替えている（TC-R02）。
 """
@@ -12,7 +12,16 @@ from fukugyononuko_social.domain.metrics import Finished
 from fukugyononuko_social.engines.aggregation.default import DefaultAggregationEngine
 from fukugyononuko_social.engines.cost.default import DefaultCostEngine
 from fukugyononuko_social.managers.measurement.default import DefaultMeasurementManager
-from tests.fakes import FakeChannel, FakeLedger, FakeLog, FakeMetrics, FakeReport, FakeSettings, FixedClock
+from tests.fakes import (
+    FakeChannel,
+    FakeLedger,
+    FakeLog,
+    FakeMetrics,
+    FakeReport,
+    FakeSettings,
+    FakeTransaction,
+    FixedClock,
+)
 
 NOW = datetime(2026, 10, 19, 0, tzinfo=UTC)
 
@@ -24,6 +33,7 @@ class World:
         self.ledger = FakeLedger()
         self.report = FakeReport()
         self.log = FakeLog()
+        self.transaction = FakeTransaction()
         self.settings = FakeSettings(cap_jpy=cap_jpy)
         cost = DefaultCostEngine(self.settings, self.ledger)
         self.manager = DefaultMeasurementManager(
@@ -31,6 +41,7 @@ class World:
             self.metrics,
             self.ledger,
             self.report,
+            self.transaction,
             DefaultAggregationEngine(self.metrics, self.ledger),
             cost,
             FixedClock(NOW),
@@ -69,7 +80,7 @@ def test_i02_over_budget_stops_before_calling_api() -> None:
 
 
 def test_i03_partial_failure_saves_what_was_fetched_and_keeps_report() -> None:
-    w = World(FakeChannel(fail={"posts"}))
+    w = World(FakeChannel(fail={"posts"}, page_size=1))
     with pytest.raises(ExternalFailure, match="集計は前回のまま"):
         w.manager.measure()
     assert len(w.metrics.accounts) == 1
@@ -118,3 +129,20 @@ def test_r02_storage_is_replaceable_by_in_memory_fakes() -> None:
     w.manager.measure()
     report = w.report.published[-1]
     assert sum(r.impressions for r in report.monthly) == 20  # 2 回取っても投稿ごとに最新の値だけ（NFR-05）
+
+
+def test_i11_paging_stops_before_exceeding_the_cap() -> None:
+    """29 日に 250 件の投稿があり、上限が 100 円のとき（レビューの指摘 1）。
+
+    実行前の見積もり（user_read 1 + post_read 100 = $0.51 → 87 円）は通る。
+    2 ページ目の前の判定（user_read 1 + post_read 100 + 次の 100 = $1.01 → 172 円）で止まる。
+    止めなければ 250 件で $1.26 → 215 円かかっていた。
+    """
+    channel = FakeChannel(post_ids=tuple(str(i) for i in range(250)))
+    w = World(channel, cap_jpy=100)
+    with pytest.raises(ExternalFailure, match="上限"):
+        w.manager.measure()
+    assert len(w.metrics.posts) == 100
+    assert [c.jpy for _, c in w.ledger.charges] == [87]
+    assert w.report.published == []
+    assert w.last_outcome() is Outcome.FAILED

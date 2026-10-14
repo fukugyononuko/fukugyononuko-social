@@ -1,12 +1,13 @@
 """CMP-M01 MeasurementManager の実装（CC-01、CC-05、DD-19）。"""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 
 from fukugyononuko_social.access.channels import ChannelAccess
 from fukugyononuko_social.access.ledger import LedgerAccess
 from fukugyononuko_social.access.metrics import MetricsAccess
 from fukugyononuko_social.access.report import ReportAccess
+from fukugyononuko_social.access.transaction import TransactionAccess
 from fukugyononuko_social.domain.channel import month_of
 from fukugyononuko_social.domain.errors import BusinessRejection, ExternalFailure, Outcome
 from fukugyononuko_social.domain.metrics import AccountSnapshot, MeasurementSummary, PartialFetch, PostMetrics
@@ -28,6 +29,7 @@ class DefaultMeasurementManager:
         metrics: MetricsAccess,
         ledger: LedgerAccess,
         report: ReportAccess,
+        transaction: TransactionAccess,
         aggregation: AggregationEngine,
         cost: CostEngine,
         clock: Clock,
@@ -37,6 +39,7 @@ class DefaultMeasurementManager:
         self._metrics = metrics
         self._ledger = ledger
         self._report = report
+        self._transaction = transaction
         self._aggregation = aggregation
         self._cost = cost
         self._clock = clock
@@ -54,12 +57,14 @@ class DefaultMeasurementManager:
             accounts = posts = cost_jpy = 0
             failed: list[str] = []
             for channel in self._channels:
-                got_accounts, got_posts, usages, error = self._fetch(channel, now)
-                self._metrics.record(run_id, got_accounts, got_posts)
-                if usages:
-                    charge = self._cost.estimate(usages)
-                    self._ledger.record_charge(self._clock.now(), charge, run_id=run_id)
-                    cost_jpy += charge.jpy
+                got_accounts, got_posts, usages, error = self._fetch(channel, now, self._may_spend(month_of(now)))
+                charge = self._cost.estimate(usages) if usages else None
+                # 数字の保存と費用の記録は、まとめて確定する（DD-21）
+                with self._transaction.atomically():
+                    self._metrics.record(run_id, got_accounts, got_posts)
+                    if charge is not None:
+                        self._ledger.record_charge(self._clock.now(), charge, run_id=run_id)
+                cost_jpy += charge.jpy if charge is not None else 0
                 accounts += len(got_accounts)
                 posts += len(got_posts)
                 if error is not None:
@@ -89,8 +94,12 @@ class DefaultMeasurementManager:
     def cost_status(self, month: str | None = None) -> BudgetStatus:
         return self._cost.status(month or month_of(self._clock.now()))
 
+    def _may_spend(self, month: str) -> Callable[[Sequence[Usage]], bool]:
+        """ページごとの上限の判定（DD-09）。記録済みの費用（先に取ったチャネルの分も含む）に足して判定する。"""
+        return lambda usages: self._cost.afford(self._cost.estimate(usages), month)
+
     def _fetch(
-        self, channel: ChannelAccess, now: datetime
+        self, channel: ChannelAccess, now: datetime, may_spend: Callable[[Sequence[Usage]], bool]
     ) -> tuple[list[AccountSnapshot], list[PostMetrics], list[Usage], str | None]:
         """1 つのチャネルから取得する。失敗しても、それまでに取れた分と課金された操作を返す（DD-09、DD-19）。"""
         accounts: list[AccountSnapshot] = []
@@ -99,7 +108,7 @@ class DefaultMeasurementManager:
             snapshot, used = channel.account_snapshot(now)
             accounts.append(snapshot)
             usages += used
-            posts, used = channel.recent_post_metrics(now - LOOKBACK, now)
+            posts, used = channel.recent_post_metrics(now - LOOKBACK, now, lambda more: may_spend([*usages, *more]))
             usages += used
             return accounts, list(posts), usages, None
         except PartialFetch as e:

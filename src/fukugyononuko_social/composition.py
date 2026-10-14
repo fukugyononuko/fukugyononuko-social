@@ -16,6 +16,7 @@ from fukugyononuko_social.access.ledger.sqlite import SqliteLedgerAccess
 from fukugyononuko_social.access.metrics.sqlite import SqliteMetricsAccess
 from fukugyononuko_social.access.report.markdown import MarkdownReportAccess
 from fukugyononuko_social.access.settings.toml import TomlSettingsAccess
+from fukugyononuko_social.access.transaction.sqlite import SqliteTransactionAccess
 from fukugyononuko_social.clients.cli import App
 from fukugyononuko_social.clients.cli.main import run
 from fukugyononuko_social.engines.aggregation.default import DefaultAggregationEngine
@@ -42,6 +43,7 @@ def build(base: Path, channels: Sequence[ChannelAccess] | None = None) -> App:
     conn = connect(base / "nukosns.sqlite")
     metrics = SqliteMetricsAccess(conn)
     ledger = SqliteLedgerAccess(conn)
+    transaction = SqliteTransactionAccess(conn)
     cost = DefaultCostEngine(settings, ledger)
     if channels is None:
         channels = (XChannelAccess(KeychainSecurity()),)
@@ -50,6 +52,7 @@ def build(base: Path, channels: Sequence[ChannelAccess] | None = None) -> App:
         metrics,
         ledger,
         MarkdownReportAccess(settings.report_path()),
+        transaction,
         DefaultAggregationEngine(metrics, ledger),
         cost,
         clock,
@@ -59,6 +62,7 @@ def build(base: Path, channels: Sequence[ChannelAccess] | None = None) -> App:
         {c.channel: c for c in channels},
         SqliteDraftAccess(conn),
         ledger,
+        transaction,
         DefaultDraftPolicyEngine(settings),
         cost,
         clock,

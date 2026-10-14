@@ -4,6 +4,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import pytest
@@ -18,6 +19,11 @@ from fukugyononuko_social.domain.secret import Secret
 
 AT = datetime(2026, 10, 13, 0, tzinfo=UTC)
 SINCE = datetime(2026, 9, 14, 0, tzinfo=UTC)
+
+
+def allow_all(usages: object) -> bool:
+    return True
+
 
 ME = {"data": {"id": "100", "public_metrics": {"followers_count": 26, "following_count": 26, "tweet_count": 5}}}
 
@@ -108,7 +114,7 @@ def test_u08_account_and_posts_are_mapped() -> None:
     assert (snapshot.followers, snapshot.following, snapshot.posts) == (26, 26, 5)
     assert usages == (Usage(Channel.X, "user_read", 1),)
 
-    posts, usages = x.recent_post_metrics(SINCE, AT)
+    posts, usages = x.recent_post_metrics(SINCE, AT, allow_all)
     first, second = posts
     assert (first.impressions, first.likes, first.replies, first.bookmarks, first.profile_clicks) == (52, 2, 1, 3, 4)
     assert first.text_head == "テスト用の投稿 1 二行目"
@@ -126,7 +132,7 @@ def test_u08_pagination_and_user_lookup() -> None:
         ok({"data": [tweet("1", 1)], "meta": {"next_token": "abc"}}),
         ok({"data": [tweet("2", 2)], "meta": {}}),
     )
-    posts, usages = make(transport).recent_post_metrics(SINCE, AT)  # 先に account_snapshot を呼んでいない
+    posts, usages = make(transport).recent_post_metrics(SINCE, AT, allow_all)  # 先に account_snapshot を呼んでいない
     assert [p.post_id for p in posts] == ["1", "2"]
     assert usages == (Usage(Channel.X, "user_read", 1), Usage(Channel.X, "post_read", 1), Usage(Channel.X, "post_read", 1))
     assert "pagination_token=abc" in transport.requests[2].full_url
@@ -209,7 +215,7 @@ def test_u15_partial_fetch_carries_usages_and_posts() -> None:
     page1 = {"data": [tweet("1", 10)], "meta": {"next_token": "t2"}}
     transport = FakeTransport(ok(ME), ok(page1), *(Response(503, {}, b"{}") for _ in range(3)))
     with pytest.raises(PartialFetch) as caught:
-        make(transport, []).recent_post_metrics(SINCE, AT)
+        make(transport, []).recent_post_metrics(SINCE, AT, allow_all)
     assert caught.value.usages == (Usage(Channel.X, "user_read", 1), Usage(Channel.X, "post_read", 1))
     assert [p.post_id for p in caught.value.posts] == ["1"]
 
@@ -227,3 +233,24 @@ def test_u15_post_4xx_is_a_clear_failure() -> None:
     with pytest.raises(ExternalFailure, match="403") as caught:
         make(transport).post("こんにちは", "post_create")
     assert not isinstance(caught.value, UncertainPost)
+
+
+def test_u15_stops_paging_when_budget_does_not_allow() -> None:
+    seen: list[tuple[Usage, ...]] = []
+
+    def may_spend(usages: Sequence[Usage]) -> bool:
+        seen.append(tuple(usages))
+        return len(seen) < 2  # 1 ページ目は許し、2 ページ目は許さない
+
+    transport = FakeTransport(ok(ME), ok({"data": [tweet("1", 1)], "meta": {"next_token": "abc"}}))
+    with pytest.raises(PartialFetch, match="上限") as caught:
+        make(transport).recent_post_metrics(SINCE, AT, may_spend)
+    assert len(transport.requests) == 2  # 2 ページ目は取っていない
+    assert seen[1] == (Usage(Channel.X, "user_read", 1), Usage(Channel.X, "post_read", 1), Usage(Channel.X, "post_read", 100))
+    assert [p.post_id for p in caught.value.posts] == ["1"]
+
+
+@pytest.mark.parametrize("body", [b"not json", b"{}", b'{"data": null}'], ids=["broken", "no-data", "null"])
+def test_u15_success_without_post_id_is_uncertain(body: bytes) -> None:
+    with pytest.raises(UncertainPost, match="投稿 ID"):
+        make(FakeTransport(Response(201, {}, body))).post("こんにちは", "post_create")

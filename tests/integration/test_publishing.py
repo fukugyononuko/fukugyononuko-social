@@ -1,14 +1,16 @@
-"""TC-I04〜I07、I10：CMP-M02 PublishingManager（CC-02〜CC-04、DD-20）。
+"""TC-I04〜I07、I10、I12：CMP-M02 PublishingManager（CC-02〜CC-04、DD-20）。
 
 下書きの保存先は、状態遷移の拒否まで確かめるため、メモリ上の SQLite を使う。
 """
 
+import sqlite3
 from datetime import UTC, datetime
 
 import pytest
 
 from fukugyononuko_social.access._sqlite import connect
 from fukugyononuko_social.access.drafts.sqlite import SqliteDraftAccess
+from fukugyononuko_social.access.transaction.sqlite import SqliteTransactionAccess
 from fukugyononuko_social.domain.channel import Channel
 from fukugyononuko_social.domain.drafts import DraftStatus, Failed, Published
 from fukugyononuko_social.domain.errors import BusinessRejection, ExternalFailure, Outcome, UncertainPost
@@ -26,11 +28,13 @@ class World:
         self.ledger = FakeLedger()
         self.log = FakeLog()
         self.settings = FakeSettings(cap_jpy=cap_jpy)
-        self.drafts = SqliteDraftAccess(connect(":memory:"))
+        conn = connect(":memory:")
+        self.drafts = SqliteDraftAccess(conn)
         self.manager = DefaultPublishingManager(
             {Channel.X: self.channel},
             self.drafts,
             self.ledger,
+            SqliteTransactionAccess(conn),
             DefaultDraftPolicyEngine(self.settings),
             DefaultCostEngine(self.settings, self.ledger),
             FixedClock(NOW),
@@ -150,3 +154,20 @@ def test_discard_and_listing() -> None:
     w.manager.discard(a.id)
     assert [d.id for d in w.manager.drafts(DraftStatus.PENDING)] == [a.id + 1]
     assert w.manager.draft(a.id).status is DraftStatus.DISCARDED
+
+
+def test_i12_failed_charge_rolls_back_published(monkeypatch: pytest.MonkeyPatch) -> None:
+    """投稿の後で費用の記録に失敗したら、「投稿済み」も確定しない（レビューの指摘 2、DD-21）。"""
+    w = World()
+    draft_id = w.approved()
+
+    def broken(*args: object, **kwargs: object) -> None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(w.ledger, "record_charge", broken)
+    with pytest.raises(UncertainPost, match="投稿 ID：p1"):
+        w.manager.publish(draft_id)
+    assert w.drafts.find(draft_id).status is DraftStatus.SENDING
+    with pytest.raises(BusinessRejection, match="送信中"):  # 再送はしない
+        w.manager.publish(draft_id)
+    assert len(w.channel.sent) == 1

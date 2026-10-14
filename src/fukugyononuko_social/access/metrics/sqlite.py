@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import Sequence
 from datetime import datetime
 
+from fukugyononuko_social.access._sqlite import savepoint
 from fukugyononuko_social.domain.channel import Channel
 from fukugyononuko_social.domain.errors import Outcome
 from fukugyononuko_social.domain.metrics import (
@@ -37,8 +38,7 @@ class SqliteMetricsAccess:
         )
 
     def record(self, run_id: int, accounts: Sequence[AccountSnapshot], posts: Sequence[PostMetrics]) -> None:
-        with self._conn:
-            self._conn.execute("BEGIN")
+        with savepoint(self._conn, "record_metrics"):
             # 同じ主キー（同じ時刻の取得）は重複させない（NFR-05）。IMMUTABLE なので REPLACE は使わない
             self._conn.executemany(
                 "INSERT OR IGNORE INTO account_snapshots (channel, fetched_at, run_id, followers, following, posts)"

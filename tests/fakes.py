@@ -1,6 +1,7 @@
 """テスト用の偽物（ResourceAccess・Utility）。"""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -107,6 +108,7 @@ class FakeChannel:
     followers: int = 26
     post_ids: tuple[str, ...] = ("1", "2")
     fail: set[str] = field(default_factory=set)
+    page_size: int = 100
     calls: list[str] = field(default_factory=list)
     sent: list[tuple[str, str]] = field(default_factory=list)
 
@@ -116,12 +118,23 @@ class FakeChannel:
             raise ExternalFailure("アカウントの取得に失敗")
         return AccountSnapshot(self.channel, at, self.followers, 26, len(self.post_ids)), (Usage(self.channel, "user_read", 1),)
 
-    def recent_post_metrics(self, since: datetime, at: datetime) -> tuple[tuple[PostMetrics, ...], tuple[Usage, ...]]:
+    def recent_post_metrics(
+        self, since: datetime, at: datetime, may_spend: Callable[[Sequence[Usage]], bool]
+    ) -> tuple[tuple[PostMetrics, ...], tuple[Usage, ...]]:
         self.calls.append("posts")
-        posts = tuple(PostMetrics(self.channel, i, at, at, f"投稿 {i}", impressions=10) for i in self.post_ids)
-        if "posts" in self.fail:
-            raise PartialFetch("2 ページ目で失敗", usages=(Usage(self.channel, "post_read", 1),), posts=posts[:1])
-        return posts, (Usage(self.channel, "post_read", len(posts)),)
+        posts = [PostMetrics(self.channel, i, at, at, f"投稿 {i}", impressions=10) for i in self.post_ids]
+        got: list[PostMetrics] = []
+        usages: list[Usage] = []
+        for start in range(0, max(len(posts), 1), self.page_size):
+            if not may_spend([*usages, Usage(self.channel, "post_read", self.page_size)]):
+                raise PartialFetch("上限のため途中で停止", usages=tuple(usages), posts=tuple(got))
+            if "posts" in self.fail and got:
+                raise PartialFetch("2 ページ目で失敗", usages=tuple(usages), posts=tuple(got))
+            page = posts[start : start + self.page_size]
+            got += page
+            if page:
+                usages.append(Usage(self.channel, "post_read", len(page)))
+        return tuple(got), tuple(usages)
 
     def post(self, text: str, operation: str) -> PublishedPost:
         self.calls.append("post")
@@ -153,3 +166,15 @@ class FakeLog:
 
     def recent(self, n: int) -> Sequence[str]:
         return [f"{c} {o.value}" for c, o, _ in self.lines[-n:]]
+
+
+class FakeTransaction:
+    """保存先がメモリ上の偽物のときの TransactionAccess（取り消しはしない）。"""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    @contextmanager
+    def atomically(self) -> Generator[None]:
+        self.count += 1
+        yield

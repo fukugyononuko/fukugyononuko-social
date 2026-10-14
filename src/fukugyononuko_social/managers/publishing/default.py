@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from fukugyononuko_social.access.channels import ChannelAccess
 from fukugyononuko_social.access.drafts import DraftAccess
 from fukugyononuko_social.access.ledger import LedgerAccess
+from fukugyononuko_social.access.transaction import TransactionAccess
 from fukugyononuko_social.domain.channel import Channel, month_of
 from fukugyononuko_social.domain.drafts import Draft, DraftStatus, Fail, Pass, Verdict
 from fukugyononuko_social.domain.drafts import fingerprint as fingerprint_of
@@ -32,6 +33,7 @@ class DefaultPublishingManager:
         channels: Mapping[Channel, ChannelAccess],
         drafts: DraftAccess,
         ledger: LedgerAccess,
+        transaction: TransactionAccess,
         policy: DraftPolicyEngine,
         cost: CostEngine,
         clock: Clock,
@@ -40,6 +42,7 @@ class DefaultPublishingManager:
         self._channels = channels
         self._drafts = drafts
         self._ledger = ledger
+        self._transaction = transaction
         self._policy = policy
         self._cost = cost
         self._clock = clock
@@ -105,9 +108,18 @@ class DefaultPublishingManager:
                 self._drafts.record_failed(draft_id, str(e)[:MAX_ERROR])
                 raise
             now = self._clock.now()
-            result = self._drafts.record_published(draft_id, published.post_id, now)
-            if published.usages:
-                self._ledger.record_charge(now, self._cost.estimate(published.usages), draft_id=draft_id)
+            charge = self._cost.estimate(published.usages) if published.usages else None
+            try:
+                # 「投稿済み」と費用の記録は、まとめて確定する（DD-21）
+                with self._transaction.atomically():
+                    result = self._drafts.record_published(draft_id, published.post_id, now)
+                    if charge is not None:
+                        self._ledger.record_charge(now, charge, draft_id=draft_id)
+            except Exception as e:
+                raise UncertainPost(
+                    f"投稿は済みました（投稿 ID：{published.post_id}）が、記録に失敗しました。"
+                    f"下書き {draft_id} は「送信中」のままです。再送はせず、保存先を確かめてください"
+                ) from e
             return result
 
         return self._logged("publish", run, draft=draft_id)
