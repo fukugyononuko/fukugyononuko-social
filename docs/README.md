@@ -26,7 +26,7 @@
 | 1 | 型・Utility・Engine と、その単体テスト・アーキテクチャテスト | 済み |
 | 2 | ResourceAccess（SQLite、設定、書き出し、X） | 済み |
 | 3 | Manager・CLI・組み立てと、結合・総合テスト | 済み |
-| 4 | 定期実行・承認の制限・初回の実行 | 予定 |
+| 4 | 定期実行・承認の制限・初回の実行 | 済み |
 
 各フェーズの終わりに振り返りをして、[retrospectives/](retrospectives/) に残す。
 
