@@ -1,5 +1,6 @@
 """TC-N05・N06：承認の hook と、launchd の雛形（DD-16、DD-17）。"""
 
+import ast
 import importlib.util
 import json
 import plistlib
@@ -59,6 +60,11 @@ def test_n05_hook_blocks_approval(command: str) -> None:
 )
 def test_n05_hook_allows_other_commands(command: str) -> None:
     assert not hook.blocked(command)
+
+
+def test_n05_hook_parses_as_python39() -> None:
+    """macOS の python3（3.9）で動くこと。動かない hook は止めずに通してしまう。"""
+    ast.parse(HOOK.read_text(encoding="utf-8"), feature_version=(3, 9))
 
 
 def run_hook(stdin: str) -> subprocess.CompletedProcess[str]:

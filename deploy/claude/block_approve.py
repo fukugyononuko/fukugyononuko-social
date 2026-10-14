@@ -27,7 +27,7 @@ def blocked(command: str) -> bool:
 def main() -> int:
     try:
         command = json.load(sys.stdin).get("tool_input", {}).get("command", "")
-    except ValueError, AttributeError:
+    except (ValueError, AttributeError):
         return 0  # 読めない入力では、ほかのコマンドを止めない
     if isinstance(command, str) and blocked(command):
         print(MESSAGE, file=sys.stderr)
