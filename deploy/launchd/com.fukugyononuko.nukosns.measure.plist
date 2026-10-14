@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 週 1 回の計測（DD-16）。{NUKOSNS} と {LOGS} は scripts/install_launchd.py が埋める -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fukugyononuko.nukosns.measure</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{NUKOSNS}</string>
+    <string>measure</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>1</integer>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>{LOGS}/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>{LOGS}/launchd.err.log</string>
+</dict>
+</plist>
