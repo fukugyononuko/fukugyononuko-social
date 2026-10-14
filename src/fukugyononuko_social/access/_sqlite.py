@@ -5,6 +5,8 @@ IMMUTABLE の表には、UPDATE と DELETE を拒否するトリガーを付け�
 """
 
 import sqlite3
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 SCHEMA_VERSION = 1
@@ -110,7 +112,7 @@ def connect(path: Path | str) -> sqlite3.Connection:
     """接続を開き、スキーマがなければ作る。`:memory:` も渡せる（テスト用）。"""
     if isinstance(path, Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, isolation_level=None)  # 自動コミット。複数の文は transaction() でまとめる
+    conn = sqlite3.connect(path, isolation_level=None)  # 自動コミット。複数の書き込みは CMP-A07 でまとめる（DD-21）
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
@@ -120,3 +122,16 @@ def connect(path: Path | str) -> sqlite3.Connection:
     elif row["version"] != SCHEMA_VERSION:
         raise RuntimeError(f"保存先のスキーマの版が違います（{row['version']}、期待は {SCHEMA_VERSION}）")
     return conn
+
+
+@contextmanager
+def savepoint(conn: sqlite3.Connection, name: str) -> Generator[None]:
+    """1 つの操作の中の複数の文を、まとめて確定する。CMP-A07 のトランザクションの中でも外でも使える（DD-21）。"""
+    conn.execute(f"SAVEPOINT {name}")
+    try:
+        yield
+    except BaseException:
+        conn.execute(f"ROLLBACK TO {name}")
+        conn.execute(f"RELEASE {name}")
+        raise
+    conn.execute(f"RELEASE {name}")

@@ -1,4 +1,4 @@
-"""TC-U10・U13：保存先（SQLite）。状態の遷移と、表ごとの可変性（DD-03、DD-04）。"""
+"""TC-U10・U13・U16：保存先（SQLite）。状態の遷移と、表ごとの可変性（DD-03、DD-04）。"""
 
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -10,6 +10,7 @@ from fukugyononuko_social.access._sqlite import connect
 from fukugyononuko_social.access.drafts.sqlite import SqliteDraftAccess
 from fukugyononuko_social.access.ledger.sqlite import SqliteLedgerAccess
 from fukugyononuko_social.access.metrics.sqlite import SqliteMetricsAccess
+from fukugyononuko_social.access.transaction.sqlite import SqliteTransactionAccess
 from fukugyononuko_social.domain.channel import Channel
 from fukugyononuko_social.domain.drafts import (
     Approved,
@@ -195,3 +196,23 @@ def test_ledger_needs_exactly_one_origin(conn: sqlite3.Connection) -> None:
         ledger.record_charge(AT, COST)
     with pytest.raises(ValueError):
         ledger.record_charge(AT, COST, run_id=1, draft_id=1)
+
+
+# ---- TC-U16：まとめて確定（DD-21） ----
+
+
+def test_u16_atomically_commits_all_or_nothing(conn: sqlite3.Connection) -> None:
+    drafts, ledger, tx = SqliteDraftAccess(conn), SqliteLedgerAccess(conn), SqliteTransactionAccess(conn)
+    d = drafts.save_draft(Channel.X, "こんにちは", Pass(), COST, AT)
+    drafts.record_approval(d.id, AT)
+    drafts.mark_sending(d.id)
+    with pytest.raises(RuntimeError), tx.atomically():
+        drafts.record_published(d.id, "p1", AT)
+        raise RuntimeError("費用の記録の前に落ちた")
+    assert drafts.find(d.id).status is DraftStatus.SENDING
+
+    with tx.atomically():
+        drafts.record_published(d.id, "p1", AT)
+        ledger.record_charge(AT, COST, draft_id=d.id)
+    assert drafts.find(d.id).status is DraftStatus.PUBLISHED
+    assert ledger.month_total_jpy("2026-10") == 3

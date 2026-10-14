@@ -62,3 +62,12 @@ def test_keychain_failure_hides_output(monkeypatch: pytest.MonkeyPatch) -> None:
         KeychainSecurity().credential(Channel.X, "api-key")
     assert "leaked" not in str(e.value)
     assert "x-api-key" in str(e.value)
+
+
+def test_log_recent_returns_last_lines(tmp_path: Path) -> None:
+    log = JsonLinesLog(tmp_path / "nukosns.log", CLOCK)
+    assert log.recent(5) == []
+    for i in range(3):
+        log.record("measure", Outcome.OK, run=i)
+    lines = log.recent(2)
+    assert [json.loads(line)["detail"]["run"] for line in lines] == [1, 2]

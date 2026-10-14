@@ -4,6 +4,8 @@
 """
 
 import json
+from collections import deque
+from collections.abc import Sequence
 from pathlib import Path
 
 from fukugyononuko_social.domain.errors import Outcome
@@ -33,3 +35,9 @@ class JsonLinesLog:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(line, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def recent(self, n: int) -> Sequence[str]:
+        if not self._path.exists():
+            return []
+        with self._path.open(encoding="utf-8") as f:
+            return [line.rstrip("\n") for line in deque(f, maxlen=max(n, 0))]

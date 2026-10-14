@@ -13,8 +13,8 @@
 | FR-05 週 1 回の自動実行 | BR-02 | VOL-08 | CMP-C02 | 初期 |
 | FR-06 下書きの登録と検査 | BR-03、BR-04 | VOL-05、VOL-06 | CMP-C01、CMP-M02、CMP-E02、CMP-E03、CMP-A03 | 初期 |
 | FR-07 承認済みの下書きだけを投稿 | BR-03 | VOL-07 | CMP-C01、CMP-M02、CMP-A03、CMP-A01 | 初期 |
-| FR-08 投稿の結果の記録 | BR-01、BR-04 | VOL-09 | CMP-A03、CMP-A04 | 初期 |
-| FR-09 費用の見積もり・記録・上限 | BR-04 | VOL-02、VOL-06 | CMP-E03、CMP-A04、CMP-A06 | 初期 |
+| FR-08 投稿の結果の記録 | BR-01、BR-04 | VOL-09 | CMP-A03、CMP-A04、CMP-A07 | 初期 |
+| FR-09 費用の見積もり・記録・上限 | BR-04 | VOL-02、VOL-06 | CMP-E03、CMP-A04、CMP-A06、CMP-A07 | 初期 |
 | FR-10 複数チャネルへの投稿 | BR-02 | VOL-01 | CMP-M02、CMP-A01 | 将来 |
 | FR-11 スマホからの承認 | BR-02 | VOL-07 | CMP-C03 | 将来 |
 | FR-12 実行の記録をログに残す | BR-01、BR-02 | VOL-12 | CMP-U02 | 初期 |
@@ -54,23 +54,23 @@
 
 | 要件 | 詳細設計 | テスト |
 | --- | --- | --- |
-| FR-01、FR-02 | DD-02、DD-09 | TC-U08、TC-U09、TC-I01 |
-| FR-03 | DD-03 | TC-I01、TC-I03 |
+| FR-01、FR-02 | DD-02、DD-09、DD-19 | TC-U08、TC-U09、TC-I01 |
+| FR-03 | DD-03、DD-19 | TC-I01、TC-I03、TC-I09 |
 | FR-04 | DD-10、DD-11 | TC-U06、TC-S03 |
 | FR-05 | DD-16 | （手動で確認：launchd の読み込み） |
-| FR-06 | DD-04〜DD-07 | TC-U01〜TC-U03、TC-I04 |
-| FR-07 | DD-02、DD-04、DD-05、DD-17 | TC-U10、TC-U11、TC-U14、TC-I05、TC-I06、TC-S01 |
+| FR-06 | DD-04〜DD-07、DD-20 | TC-U01〜TC-U03、TC-I04 |
+| FR-07 | DD-02、DD-04、DD-05、DD-17、DD-20 | TC-U10、TC-U11、TC-U14、TC-I05、TC-I06、TC-S01 |
 | FR-08 | DD-03、DD-04 | TC-I07 |
-| FR-09 | DD-08、DD-12 | TC-U04、TC-U05、TC-I02、TC-I08 |
+| FR-09 | DD-08、DD-09、DD-12、DD-19、DD-21 | TC-U04、TC-U05、TC-U15、TC-U16、TC-I02、TC-I08、TC-I09、TC-I11、TC-I12 |
 | FR-12 | DD-14 | TC-I02、TC-I03、TC-N02 |
 | NFR-01 | DD-13 | TC-U12、TC-N02 |
 | NFR-02 | DD-03、DD-12 | TC-N03 |
 | NFR-03 | ― | TC-N01、TC-N04 |
 | NFR-04 | DD-07 | TC-U03、TC-I06 |
 | NFR-05 | DD-03、DD-09、DD-10 | TC-U06、TC-U13 |
-| NFR-06 | DD-04、DD-09 | TC-U09、TC-U10、TC-I07 |
-| NFR-07 | DD-08 | TC-U05、TC-I02、TC-R03 |
-| NFR-08 | DD-01、DD-15 | TC-A02、TC-R01〜TC-R03 |
+| NFR-06 | DD-04、DD-09、DD-20 | TC-U09、TC-U10、TC-U15、TC-I07、TC-I10 |
+| NFR-07 | DD-08、DD-09 | TC-U05、TC-I02、TC-I11、TC-R03 |
+| NFR-08 | DD-01、DD-15 | TC-A02、TC-R01〜TC-R03、TC-I09 |
 | NFR-09 | DD-01 | TC-A01、TC-A03、全テスト（ネットワーク禁止） |
 | NFR-10 | DD-09、DD-17 | TC-I06 |
 | 利用規則（01 §1.6） | DD-01 | TC-A01、TC-A02 |
@@ -101,6 +101,7 @@
 | CMP-A04 LedgerAccess | FR-08、FR-09、NFR-02 |
 | CMP-A05 ReportAccess | FR-04 |
 | CMP-A06 SettingsAccess | FR-09、NFR-04、NFR-07 |
+| CMP-A07 TransactionAccess | FR-08、FR-09 |
 | CMP-U01 Security | NFR-01 |
 | CMP-U02 Logging | FR-12 |
 | CMP-U03 Clock | NFR-09（時刻を固定したテスト） |

@@ -12,9 +12,9 @@ src/fukugyononuko_social/
     channel.py  errors.py  secret.py  money.py  metrics.py  drafts.py
   utilities/          # CMP-U01 security/、CMP-U02 logging/、CMP-U03 clock/
   engines/            # CMP-E01 aggregation/、CMP-E02 draft_policy/、CMP-E03 cost/
-  access/             # CMP-A01 channels/、A02 metrics/、A03 drafts/、A04 ledger/、A05 report/、A06 settings/
+  access/             # CMP-A01 channels/、A02 metrics/、A03 drafts/、A04 ledger/、A05 report/、A06 settings/、A07 transaction/
   managers/           # CMP-M01 measurement/、CMP-M02 publishing/
-  clients/            # CMP-C01 cli/（CMP-C02 は deploy/launchd。DD-16）
+  clients/            # CMP-C01 cli/（__init__ に CLI が使うものの組 App、main.py に argparse）。CMP-C02 は deploy/launchd（DD-16）
   composition.py      # 具体的な実装を組み立てる唯一の場所（DD-15）
 ```
 
@@ -37,10 +37,10 @@ src/fukugyononuko_social/
 | モジュール | 型 |
 | --- | --- |
 | `channel.py` | `Channel`（列挙：`X`。将来 `THREADS` など）、`month_of`（日本時間の YYYY-MM） |
-| `errors.py` | `Outcome`（ok / rejected / failed）、`BusinessRejection`、`UsageError`、`ExternalFailure`（DD-18） |
+| `errors.py` | `Outcome`（ok / rejected / failed）、`BusinessRejection`、`UsageError`、`ExternalFailure`、`UncertainPost`（DD-18） |
 | `secret.py` | `Secret`：`repr`・`str`・`format` は `Secret(***)`。保存・複製（pickle）はできない（DD-13） |
 | `money.py` | `Usage`（channel、operation、units）、`Cost`（usd、jpy、usages）、`Budget`、`BudgetStatus` |
-| `metrics.py` | `AccountSnapshot`、`PostMetrics`、`MeasurementRun = Running \| Finished`、`MetricsHistory`、`MonthlyRow`、`Report` |
+| `metrics.py` | `AccountSnapshot`、`PostMetrics`、`MeasurementRun = Running \| Finished`、`MetricsHistory`、`MonthlyRow`、`Report`、`MeasurementSummary`、`PartialFetch`（DD-18） |
 | `drafts.py` | `Finding`、`Verdict = Pass \| Fail`、`DraftState`、`Draft`、`DraftStatus`、`PublishedPost`、`fingerprint` |
 
 **直和型にするもの**：
@@ -210,7 +210,12 @@ X の公式の数え方（[Counting characters](https://docs.x.com/fundamentals/
   - GET は読み取りだけなので、再試行しても X 側の状態は変わらない。再試行で費用が二重にかかる可能性はある（同じものを 24 時間以内に取り直すと課金されないことがある、と公式にあるが、保証はない）。そこで、費用は 2xx の応答ごとに記録する。
   - 計測をまるごと再実行しても、追記の表と「投稿ごとに最新の値だけを使う」集計（DD-10）により、集計は重複しない（NFR-05）。
   - POST（投稿）は再試行しない。X の投稿 API に、重複を防ぐキー（冪等キー）の仕組みは見当たらない（未確認）。そのため、二重投稿は下書きの状態遷移で防ぐ（DD-04）。応答が返らないまま終わった場合は「送信中」のまま残り、自動では再送しない（運営者が X の画面で確かめる）。
+- **失敗の知らせ方**：
+  - 取得（GET）が途中で失敗したら `PartialFetch` を出す。それまでに成功した応答の課金（`usages`）と、取れた投稿（`posts`）を持たせる。Manager は、それを保存し、費用として記録する（成功した分だけ記録する。2026-10-14 に運営者が決定）。
+  - 投稿（POST）は、4xx の応答なら「投稿されていない」と判断して `ExternalFailure` を出す（下書きは「失敗」になり、再送できる）。5xx の応答・タイムアウト・接続の失敗は、X 側で投稿されたかどうかがわからないので `UncertainPost` を出す（下書きは「送信中」のまま残る）。
+  - 成功の応答（2xx）でも、本文から投稿 ID を読めない（JSON が壊れている、項目がない）ときは、投稿された可能性があるので `UncertainPost` を出す。
 - 投稿の取得は `start_time` を「今 − 29 日」、`max_results=100`、`exclude=retweets` にして、`next_token` がなくなるまでページをめくる。
+- **ページごとの上限の判定**：実行前の見積もり（`usage_upper_bound`）は 1 ページ分（投稿 100 件）だけなので、29 日に 101 件以上の投稿があると、それを超えうる。そこで、ページを取る前に毎回、「それまでの課金 + 次のページの上限（投稿 100 件）」を Manager から渡された `may_spend` で確かめる。許されなければ取得を止め、それまでの分を `PartialFetch` で返す（BR-04、FR-09）。
 - 応答の `public_metrics` と `non_public_metrics` を、共通の項目名（02b §2b.3）に揃える。
 
 ## DD-10 集計（CMP-E01）
@@ -258,8 +263,35 @@ post_create_with_url = "0.200"
 ## DD-15 組み立てと CLI（CMP-C01）
 
 - `composition.py` だけが具体的な実装（X 用の ChannelAccess、SQLite、キーチェーンなど）を知っている。動かす場所を変えるときは、ここで差し替える（VOL-08〜VOL-12）。
-- CLI は `argparse` で作り、例外を終了コードに変換する：`BusinessRejection` → 1、`UsageError` → 2、`ExternalFailure` → 3。
-- `pyproject.toml` の `[project.scripts]` に `nukosns = "fukugyononuko_social.clients.cli:main"` を登録する。
+- CLI（`clients/cli/`）は Manager の契約と Utility だけを知る。組み立ては、引数で受け取った関数（`build`）に任せる。Client は組み立てを import できない（DD-01）ため、入口の `main` は `composition.py` に置き、`clients.cli.run(argv, build)` を呼ぶ。
+- `pyproject.toml` の `[project.scripts]` に `nukosns = "fukugyononuko_social.composition:main"` を登録する。
+- 保存先のフォルダは `~/fukugyononuko/data/fukugyononuko-social/`。環境変数 `NUKOSNS_HOME` で変えられる（総合テストで使う）。その中に `settings.toml`、`nukosns.sqlite`、`logs/nukosns.log` を置く。
+- CLI は `argparse` で作り、例外を終了コードに変換する：`BusinessRejection` → 1、`UsageError` → 2、`ExternalFailure`（`UncertainPost`・`PartialFetch` を含む）→ 3。エラー文は標準エラーに `エラー：…` の形で出す。
+- 表示は日本語の文章と表だけにする（JSON の出力は作らない。2026-10-14 に運営者が決定）。下書きの登録と詳細では、承認のコマンド（`! nukosns approve 番号 指紋`）も示す。
+- `log` は Logging の `recent(n)` で、ログの最後の n 行（初期値 20）をそのまま表示する。
+
+## DD-19 計測の流れ（CMP-M01、CC-01）
+
+1. 計測 1 回分の記録を始める（`start_run`）。
+2. すべてのチャネルの `usage_upper_bound` を合わせて見積もり、`afford` で判定する。超えるなら「拒否」で終え、`BusinessRejection` を出す（API は呼ばない）。
+3. チャネルごとに、アカウントの数字 → 直近 29 日の投稿の数字の順に取得する。
+   - 投稿のページを取る前に毎回、「この計測でそれまでに記録した費用 + このチャネルのそれまでの課金 + 次のページの上限」が月の上限以内かを判定する（DD-09）。超えるなら、そのチャネルの取得を止めて失敗とする。
+   - 取れた数字の保存と、課金された操作の記録（チャネルごとに 1 件）を、まとめて確定する（DD-21）。
+   - あるチャネルが失敗しても、残りのチャネルは続ける（2026-10-14 に運営者が決定）。失敗の途中までに取れた分（`PartialFetch`）も保存し、記録する。
+4. 1 つでも失敗したら、計測を「失敗」で終え、集計のノートは書き換えずに `ExternalFailure` を出す（一部のチャネルだけ新しい表にしない）。
+5. すべて成功したら、計測を「成功」で終え、集計を作って書き出す。結果（`MeasurementSummary`：アカウントの件数、投稿の件数、費用）を返す。
+6. どの場合も、ログに 1 行残す（`measure`）。
+
+## DD-20 投稿の流れ（CMP-M02、CC-02〜CC-04）
+
+- **操作の名前**：投稿の費用の操作は、全チャネルで共通の名前にする。検査の注意に URL（`url`）があれば `post_create_with_url`、なければ `post_create`。単価表にない操作は `UsageError` になる。
+- **登録**：検査 → 見積もり → 保存。不合格でも保存し（状態は「不合格」）、`BusinessRejection` は出さずに下書きを返す。CLI は、不合格の下書きを表示してから終了コード 1 で終わる。
+- **承認**：指紋は 8 文字以上の 16 進で、保存した指紋の先頭と一致すること。あわせて、保存した文章から指紋を計算し直し、保存した指紋と一致することも確かめる。
+- **投稿**：「承認済み」か「失敗」の下書きだけ。指紋の再照合 → 再検査（不合格なら拒否。状態は変えない）→ 見積もり → 上限の判定 → 「送信中」→ 投稿。
+  - 成功：「投稿済み」にすることと費用の記録を、まとめて確定する（DD-21）。確定に失敗したら、下書きは「送信中」のまま残り、費用も記録されない。このときは `UncertainPost` を出して、X の画面で確かめるよう示す（投稿は済んでいるので、再送はしない）。
+  - `UncertainPost`：「送信中」のまま残し、X の画面で確かめるよう示す。費用は記録しない。
+  - `ExternalFailure`：「失敗」にする（エラー文は 200 文字まで）。費用は記録しない。
+- ログ（`draft add`・`approve`・`publish`・`discard`）には、下書きの番号・状態・費用だけを書く。文章は書かない。
 
 ## DD-16 定期実行（CMP-C02、EIF-08）
 
@@ -279,6 +311,14 @@ post_create_with_url = "0.200"
 
 これは、Claude Code が誤って承認することを防ぐ仕組み。指紋（DD-05）と合わせて、承認は「運営者が見た文章そのもの」に結びつく。
 
+## DD-21 まとめて確定する書き込み（CMP-A07）
+
+- 契約：`atomically()` は、コンテキストマネージャーを返す。`with` の中の、保存先への書き込みは、すべて確定するか、どれも確定しない。
+- SQLite の実装：A02〜A04 と同じ接続で `BEGIN IMMEDIATE` → 成功したら `COMMIT`、例外なら `ROLLBACK` して例外をそのまま出す。入れ子にはしない。
+- 1 つの操作の中で複数の文を書く ResourceAccess（例：A02 の `record`）は、`BEGIN` ではなく `SAVEPOINT` を使う（`access/_sqlite.py` の `savepoint`）。A07 の中でも外でも使える。
+- 使う場所：計測の保存と費用の記録（DD-19）、投稿済みの記録と費用の記録（DD-20）。
+- 保存先を変えるとき（VOL-09）は、その保存先のやり方でこの契約を実装する。まとめて確定できない保存先なら、先に費用を記録してから状態を変える順にする（費用の取り漏れより、二重の計上を選ぶ）。
+
 ## DD-18 例外
 
 | 例外 | 意味 | 終了コード |
@@ -286,3 +326,5 @@ post_create_with_url = "0.200"
 | `BusinessRejection` | 検査の不合格、上限の超過、承認なし、指紋の不一致、許されない遷移 | 1 |
 | `UsageError` | 引数の誤り、設定ファイルがない | 2 |
 | `ExternalFailure` | API・キーチェーン・保存先の失敗 | 3 |
+| `PartialFetch`（`ExternalFailure` の一種） | 取得の途中の失敗。それまでの課金と、取れた投稿を持つ（DD-09） | 3 |
+| `UncertainPost`（`ExternalFailure` の一種） | 投稿されたかどうかわからない失敗（DD-09） | 3 |
