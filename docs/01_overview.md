@@ -21,7 +21,7 @@
 | VOL-06 | 費用の計算と上限 | 単価の改定、為替、上限額の変更 | 時間、利用者 | CMP-E03 CostEngine |
 | VOL-07 | 承認の場所 | Claude Code → スマホのアプリ | 利用者 | Client（CMP-C01 CLI → CMP-C03 承認アプリ） |
 | VOL-08 | 動かす場所ときっかけ | Mac の定期実行（launchd）→ Google Cloud（Cloud Scheduler など）、手動 | 時間 | CMP-C02 Scheduler、CMP-A06 SettingsAccess（設定の置き場所） |
-| VOL-09 | 保存先 | 手元の SQLite → クラウドの保存先（GCS のようなオブジェクトストレージ、データベースなど） | 時間 | CMP-A02 MetricsAccess、CMP-A03 DraftAccess、CMP-A04 LedgerAccess |
+| VOL-09 | 保存先 | 手元の SQLite → クラウドの保存先（GCS のようなオブジェクトストレージ、データベースなど） | 時間 | CMP-A02 MetricsAccess、CMP-A03 DraftAccess、CMP-A04 LedgerAccess、CMP-A07 TransactionAccess |
 | VOL-10 | 集計の書き出し先 | 運営者のノート（Markdown）→ ほかの表、ホームページ | 利用者 | CMP-A05 ReportAccess |
 | VOL-11 | 認証情報の置き場所 | macOS キーチェーン → Secret Manager | 時間 | CMP-U01 Security |
 | VOL-12 | ログの出し先 | ファイル → Cloud Logging | 時間 | CMP-U02 Logging |
@@ -65,6 +65,7 @@
 | CMP-A04 | ResourceAccess | LedgerAccess | 費用の記録を保存し、月ごとの合計を読み出す | VOL-09 | 初期 |
 | CMP-A05 | ResourceAccess | ReportAccess | 集計を書き出す | VOL-10 | 初期 |
 | CMP-A06 | ResourceAccess | SettingsAccess | 単価表・上限・為替・禁止語を読み出す | VOL-08 | 初期 |
+| CMP-A07 | ResourceAccess | TransactionAccess | 保存先への複数の書き込みを、まとめて確定する（すべて確定するか、どれも確定しないか） | VOL-09 | 初期 |
 | CMP-U01 | Utility | Security | 認証情報を読み出す。ログやエラー文に出さない | VOL-11 | 初期 |
 | CMP-U02 | Utility | Logging | 実行の記録（成功・失敗）を残す | VOL-12 | 初期 |
 | CMP-U03 | Utility | Clock | 現在時刻を返す（テストで固定するため） | ― | 初期 |
@@ -92,6 +93,7 @@ flowchart TB
     A04["CMP-A04 LedgerAccess"]
     A05["CMP-A05 ReportAccess"]
     A06["CMP-A06 SettingsAccess"]
+    A07["CMP-A07 TransactionAccess"]
   end
   subgraph Resource
     R01["RES-01 X API"]
@@ -104,15 +106,15 @@ flowchart TB
   C02 --> M01
   C03 -.-> M02
   M01 --> E01 & E03
-  M01 --> A01 & A02 & A04 & A05
+  M01 --> A01 & A02 & A04 & A05 & A07
   M02 --> E02 & E03
-  M02 --> A01 & A03 & A04
+  M02 --> A01 & A03 & A04 & A07
   E01 --> A02 & A04
   E02 --> A06
   E03 --> A04 & A06
   A01 --> R01
   A01 -.-> R02
-  A02 & A03 & A04 --> R03
+  A02 & A03 & A04 & A07 --> R03
   A05 --> R04
   A06 --> R05
 ```
@@ -148,5 +150,5 @@ The Method の呼び出しの規則に従う。CI のアーキテクチャテス
 | 変化 | 直す場所 | 直さない場所 |
 | --- | --- | --- |
 | Threads を足す（VOL-01） | A01 に Threads の実装を足し、E03 の単価表と E02 のルールにチャネルを足す | Manager、Client、保存先 |
-| Google Cloud に移す（VOL-08、VOL-09、VOL-11、VOL-12） | C02、A02〜A04 の保存先、A06、U01、U02 | Manager、Engine、A01 |
+| Google Cloud に移す（VOL-08、VOL-09、VOL-11、VOL-12） | C02、A02〜A04・A07 の保存先、A06、U01、U02 | Manager、Engine、A01 |
 | スマホで承認する（VOL-07） | C03 を足す | Manager 以下 |
